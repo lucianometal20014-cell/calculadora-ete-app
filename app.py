@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import date
 import io
+import openpyxl
+from openpyxl.chart import LineChart, Reference
 
 # Configuração da página e Título
 st.set_page_config(
@@ -14,12 +16,10 @@ st.set_page_config(
 # Estilo CSS Personalizado Otimizado para Telemóveis (Android)
 st.markdown("""
 <style>
-    /* Estilização para ecrãs pequenos (Mobile Android) */
     @media (max-width: 768px) {
-        .main-title { font-size: 22px !important; }
-        .kpi-value { font-size: 20px !important; }
+        .main-title { font-size: 20px !important; }
+        .kpi-value { font-size: 18px !important; }
         .kpi-title { font-size: 11px !important; }
-        .stNumberInput { margin-bottom: -10px; }
     }
     
     .header-banner {
@@ -101,38 +101,38 @@ with tab_dqo:
     dqo_sanitario = col1.number_input("DQO Sanitário", min_value=0.0, value=1209.0, key="dqo_s")
     dqo_ind_bruto = col1.number_input("DQO Ind. Bruto", min_value=0.0, value=6980.0, key="dqo_b")
     dqo_ind_tratado = col2.number_input("DQO Ind. Tratado", min_value=0.0, value=1391.0, key="dqo_t")
-    dqo_permeado = col2.number_input("DQO Permeado", min_value=0.0, value=73.5, key="dqo_p")
+    dqo_permeado = col2.number_input("DQO Permeado (Saída)", min_value=0.0, value=73.5, key="dqo_p")
 
 with tab_dbo:
     col1, col2 = st.columns(2)
     dbo_sanitario = col1.number_input("DBO Sanitário", min_value=0.0, value=650.0, key="dbo_s")
     dbo_ind_bruto = col1.number_input("DBO Ind. Bruto", min_value=0.0, value=3100.0, key="dbo_b")
     dbo_ind_tratado = col2.number_input("DBO Ind. Tratado", min_value=0.0, value=700.0, key="dbo_t")
-    dbo_permeado = col2.number_input("DBO Permeado", min_value=0.0, value=32.0, key="dbo_p")
+    dbo_permeado = col2.number_input("DBO Permeado (Saída)", min_value=0.0, value=32.0, key="dbo_p")
 
 with tab_nutrientes:
     col1, col2 = st.columns(2)
     n_sanitario = col1.number_input("N Sanitário", min_value=0.0, value=93.1, key="n_s")
     n_ind_tratado = col1.number_input("N Ind. Tratado", min_value=0.0, value=13.07, key="n_t")
-    n_permeado = col1.number_input("N Permeado", min_value=0.0, value=10.5, key="n_p")
+    n_permeado = col1.number_input("N Permeado (Saída)", min_value=0.0, value=10.5, key="n_p")
     
     p_sanitario = col2.number_input("P Sanitário", min_value=0.0, value=43.6, key="p_s")
     p_ind_tratado = col2.number_input("P Ind. Tratado", min_value=0.0, value=1.18, key="p_t")
-    p_permeado = col2.number_input("P Permeado", min_value=0.0, value=0.20, key="p_p")
+    p_permeado = col2.number_input("P Permeado (Saída)", min_value=0.0, value=0.20, key="p_p")
 
 with tab_og:
     col1, col2 = st.columns(2)
     og_sanitario = col1.number_input("O&G Sanitário", min_value=0.0, value=155.2, key="og_s")
     og_ind_bruto = col1.number_input("O&G Ind. Bruto", min_value=0.0, value=2192.4, key="og_b")
     og_ind_tratado = col2.number_input("O&G Ind. Tratado", min_value=0.0, value=283.8, key="og_t")
-    og_permeado = col2.number_input("O&G Permeado", min_value=0.0, value=49.4, key="og_p")
+    og_permeado = col2.number_input("O&G Permeado (Saída)", min_value=0.0, value=49.4, key="og_p")
 
 with tab_ph:
     col1, col2 = st.columns(2)
     ph_sanitario = col1.number_input("pH Sanitário", min_value=0.0, max_value=14.0, value=7.6, key="ph_s")
     ph_ind_bruto = col1.number_input("pH Ind. Bruto", min_value=0.0, max_value=14.0, value=9.7, key="ph_b")
     ph_ind_tratado = col2.number_input("pH Ind. Tratado", min_value=0.0, max_value=14.0, value=7.62, key="ph_t")
-    ph_permeado = col2.number_input("pH Permeado", min_value=0.0, max_value=14.0, value=7.63, key="ph_p")
+    ph_permeado = col2.number_input("pH Permeado (Saída)", min_value=0.0, max_value=14.0, value=7.63, key="ph_p")
 
 st.markdown("---")
 
@@ -181,7 +181,7 @@ def get_color_class(valor):
     else: return "card-red", "#C62828"
 
 # ---------------------------------------------------------
-# RESULTADOS
+# RESULTADOS DA TELA
 # ---------------------------------------------------------
 st.header("📊 Balanço Nutricional do Reator")
 col_res1, col_res2 = st.columns(2)
@@ -220,7 +220,7 @@ for col, titulo, val in [(c2, "Rem. DQO", efic_dqo), (c3, "Rem. DBO", efic_dbo),
 st.markdown("---")
 
 # ---------------------------------------------------------
-# BOTÃO DE SALVAR LANÇAMENTO E GERAR RELATÓRIO EXCEL/CSV
+# BOTÃO DE SALVAR LANÇAMENTO E EXTRAIR EXCEL COM GRÁFICO AUTOMÁTICO
 # ---------------------------------------------------------
 st.header("💾 Salvar Lançamento & Extrair Relatórios")
 
@@ -231,6 +231,16 @@ if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_co
         "Vazão Ind. Bruto (m³/dia)": vazao_ind_bruto,
         "Vazão Ind. Tratado (m³/dia)": vazao_ind_tratado,
         "Vazão Permeado (m³/dia)": vazao_permeado,
+        "DBO Permeado (mg/L)": dbo_permeado,
+        "DBO Limite (mg/L)": 60.0,
+        "N Permeado (mg/L)": n_permeado,
+        "N Limite (mg/L)": 20.0,
+        "P Permeado (mg/L)": p_permeado,
+        "P Limite (mg/L)": 5.0,
+        "DQO Permeado (mg/L)": dqo_permeado,
+        "DQO Limite (mg/L)": 120.0,
+        "O&G Permeado (mg/L)": og_permeado,
+        "O&G Limite (mg/L)": 50.0,
         "Carga DBO Entrada (kg/dia)": round(carga_dbo_total_entrada, 2),
         "Remoção DQO (%)": round(efic_dqo, 2),
         "Remoção DBO (%)": round(efic_dbo, 2),
@@ -241,22 +251,45 @@ if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_co
         "Balanço P (kg/dia)": round(desvio_p_kg, 2)
     }
     
-    # Adicionar ao DataFrame existente
     df_novo = pd.DataFrame([novo_registro])
     st.session_state["historico_lancamentos"] = pd.concat([st.session_state["historico_lancamentos"], df_novo], ignore_index=True)
     st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} guardado com sucesso!")
 
-# Exibição da Tabela de Histórico e Filtro por Período
 df_historico = st.session_state["historico_lancamentos"]
 
 if not df_historico.empty:
     st.subheader("📋 Histórico de Lançamentos Guardados")
     st.dataframe(df_historico, use_container_width=True)
 
-    # Função para gerar ficheiro Excel para download
+    # GERAÇÃO DO FICHEIRO EXCEL COM GRÁFICO AUTOMÁTICO SE >= 5 DIAS
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
+        
+        # Se houver 5 ou mais lançamentos, desenha o gráfico no Excel
+        if len(df_historico) >= 5:
+            wb = writer.book
+            ws = writer.sheets['Relatório ETE']
+            
+            chart = LineChart()
+            chart.title = "Acompanhamento do Permeado (Saída) x Limites Legais (mg/L)"
+            chart.style = 13
+            chart.y_axis.title = "Concentração (mg/L)"
+            chart.x_axis.title = "Data"
+            chart.width = 18
+            chart.height = 10
+            
+            # Referência das datas (Coluna 1)
+            cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_historico)+1)
+            # Referência dos parâmetros de saída e limites (Colunas 6 a 15)
+            data_ref = Reference(ws, min_col=6, min_row=1, max_col=15, max_row=len(df_historico)+1)
+            
+            chart.add_data(data_ref, titles_from_data=True)
+            chart.set_categories(cats)
+            
+            # Posiciona o gráfico na célula Q2 (ao lado da tabela)
+            ws.add_chart(chart, "Q2")
+
     excel_data = output.getvalue()
 
     col_down1, col_down2 = st.columns(2)
