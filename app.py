@@ -5,13 +5,45 @@ import io
 import openpyxl
 from openpyxl.chart import LineChart, Reference
 
-# Configuração da página e Título
+# Configuração da página e Título do Navegador
 st.set_page_config(
     page_title="Calculadora ETE | Eficiência & Nutrientes",
     page_icon="🧪",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# =========================================================
+# SISTEMA DE PROTEÇÃO POR SENHA (HOTMART)
+# =========================================================
+SENHA_CORRETA = "ETECONTROLE"  # <- Altere aqui para a senha que deseja fornecer aos seus alunos
+
+def verificar_senha():
+    if "autenticado" not in st.session_state:
+        st.session_state["autenticado"] = False
+
+    if not st.session_state["autenticado"]:
+        st.title("🔒 Acesso Restrito aos Alunos")
+        st.write("Por favor, insira a senha fornecida na sua área de membros da Hotmart para liberar o aplicativo.")
+        
+        senha_digitada = st.text_input("Senha de Acesso", type="password")
+        
+        if st.button("Entrar", type="primary", use_container_width=True):
+            if senha_digitada == SENHA_CORRETA:
+                st.session_state["autenticado"] = True
+                st.rerun()
+            else:
+                st.error("❌ Senha incorreta. Verifique a senha informada no curso da Hotmart.")
+        return False
+    return True
+
+# Interrompe a execução caso a senha não tenha sido digitada
+if not verificar_senha():
+    st.stop()
+
+# =========================================================
+# APLICAÇÃO PRINCIPAL (SÓ CARREGA APÓS A SENHA CORRETA)
+# =========================================================
 
 # Estilo CSS Personalizado Otimizado para Telemóveis (Android)
 st.markdown("""
@@ -261,7 +293,6 @@ if not df_historico.empty:
     st.subheader("📋 Histórico de Lançamentos Guardados")
     st.dataframe(df_historico, use_container_width=True)
 
-    # GERAÇÃO DO FICHEIRO EXCEL COM GRÁFICO AUTOMÁTICO SE >= 5 DIAS
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
@@ -279,15 +310,12 @@ if not df_historico.empty:
             chart.width = 18
             chart.height = 10
             
-            # Referência das datas (Coluna 1)
             cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_historico)+1)
-            # Referência dos parâmetros de saída e limites (Colunas 6 a 15)
             data_ref = Reference(ws, min_col=6, min_row=1, max_col=15, max_row=len(df_historico)+1)
             
             chart.add_data(data_ref, titles_from_data=True)
             chart.set_categories(cats)
             
-            # Posiciona o gráfico na célula Q2 (ao lado da tabela)
             ws.add_chart(chart, "Q2")
 
     excel_data = output.getvalue()
