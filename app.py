@@ -3,9 +3,9 @@ import pandas as pd
 from datetime import date
 import io
 import openpyxl
-from openpyxl.chart import LineChart, Reference
+from openpyxl.chart import BarChart, LineChart, Reference
 
-# Configuração da página e Título do Navegador
+# Configuração da página e Título
 st.set_page_config(
     page_title="Calculadora ETE | Eficiência & Nutrientes",
     page_icon="🧪",
@@ -16,7 +16,7 @@ st.set_page_config(
 # =========================================================
 # SISTEMA DE PROTEÇÃO POR SENHA (HOTMART)
 # =========================================================
-SENHA_CORRETA = "ETECONTROLE"  # <- Altere aqui para a senha que deseja fornecer aos seus alunos
+SENHA_CORRETA = "ETE2026"  # <- Senha fornecida aos alunos na Hotmart
 
 def verificar_senha():
     if "autenticado" not in st.session_state:
@@ -37,12 +37,11 @@ def verificar_senha():
         return False
     return True
 
-# Interrompe a execução caso a senha não tenha sido digitada
 if not verificar_senha():
     st.stop()
 
 # =========================================================
-# APLICAÇÃO PRINCIPAL (SÓ CARREGA APÓS A SENHA CORRETA)
+# APLICAÇÃO PRINCIPAL
 # =========================================================
 
 # Estilo CSS Personalizado Otimizado para Telemóveis (Android)
@@ -83,7 +82,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Inicializar o histórico de lançamentos na sessão se não existir
 if "historico_lancamentos" not in st.session_state:
     st.session_state["historico_lancamentos"] = pd.DataFrame()
 
@@ -96,7 +94,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# SELEÇÃO DA DATA DE LANÇAMENTO
+# DATA DE LANÇAMENTO
 # ---------------------------------------------------------
 st.subheader("📅 Data do Lançamento Operacional")
 data_lancamento = st.date_input("Selecione a Data das Análises:", value=date.today())
@@ -252,27 +250,27 @@ for col, titulo, val in [(c2, "Rem. DQO", efic_dqo), (c3, "Rem. DBO", efic_dbo),
 st.markdown("---")
 
 # ---------------------------------------------------------
-# BOTÃO DE SALVAR LANÇAMENTO E EXTRAIR EXCEL COM GRÁFICO AUTOMÁTICO
+# BOTÃO DE SALVAR LANÇAMENTO E EXTRAIR EXCEL
 # ---------------------------------------------------------
 st.header("💾 Salvar Lançamento & Extrair Relatórios")
 
 if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_container_width=True):
     novo_registro = {
         "Data": data_lancamento.strftime("%Y-%m-%d"),
-        "Vazão Sanitário (m³/dia)": vazao_sanitario,
-        "Vazão Ind. Bruto (m³/dia)": vazao_ind_bruto,
-        "Vazão Ind. Tratado (m³/dia)": vazao_ind_tratado,
-        "Vazão Permeado (m³/dia)": vazao_permeado,
         "DBO Permeado (mg/L)": dbo_permeado,
         "DBO Limite (mg/L)": 60.0,
-        "N Permeado (mg/L)": n_permeado,
-        "N Limite (mg/L)": 20.0,
-        "P Permeado (mg/L)": p_permeado,
-        "P Limite (mg/L)": 5.0,
         "DQO Permeado (mg/L)": dqo_permeado,
         "DQO Limite (mg/L)": 120.0,
         "O&G Permeado (mg/L)": og_permeado,
         "O&G Limite (mg/L)": 50.0,
+        "N Permeado (mg/L)": n_permeado,
+        "N Limite (mg/L)": 20.0,
+        "P Permeado (mg/L)": p_permeado,
+        "P Limite (mg/L)": 5.0,
+        "Vazão Sanitário (m³/dia)": vazao_sanitario,
+        "Vazão Ind. Bruto (m³/dia)": vazao_ind_bruto,
+        "Vazão Ind. Tratado (m³/dia)": vazao_ind_tratado,
+        "Vazão Permeado (m³/dia)": vazao_permeado,
         "Carga DBO Entrada (kg/dia)": round(carga_dbo_total_entrada, 2),
         "Remoção DQO (%)": round(efic_dqo, 2),
         "Remoção DBO (%)": round(efic_dbo, 2),
@@ -297,26 +295,56 @@ if not df_historico.empty:
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
         
-        # Se houver 5 ou mais lançamentos, desenha o gráfico no Excel
+        # Se houver 5 ou mais lançamentos, cria os gráficos INDIVIDUAIS no Excel
         if len(df_historico) >= 5:
             wb = writer.book
             ws = writer.sheets['Relatório ETE']
             
-            chart = LineChart()
-            chart.title = "Acompanhamento do Permeado (Saída) x Limites Legais (mg/L)"
-            chart.style = 13
-            chart.y_axis.title = "Concentração (mg/L)"
-            chart.x_axis.title = "Data"
-            chart.width = 18
-            chart.height = 10
-            
+            # Referência para o eixo horizontal de DATAS (Coluna A = Coluna 1)
             cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_historico)+1)
-            data_ref = Reference(ws, min_col=6, min_row=1, max_col=15, max_row=len(df_historico)+1)
             
-            chart.add_data(data_ref, titles_from_data=True)
-            chart.set_categories(cats)
+            # Mapeamento dos parâmetros (Nome, Coluna Real, Coluna Limite, Célula do Gráfico no Excel)
+            # Colunas na planilha:
+            # Col 1: Data
+            # Col 2: DBO Permeado, Col 3: DBO Limite
+            # Col 4: DQO Permeado, Col 5: DQO Limite
+            # Col 6: O&G Permeado, Col 7: O&G Limite
+            # Col 8: N Permeado, Col 9: N Limite
+            # Col 10: P Permeado, Col 11: P Limite
             
-            ws.add_chart(chart, "Q2")
+            graficos_config = [
+                ("Acompanhamento DBO (Saída)", 2, 3, "W2"),
+                ("Acompanhamento DQO (Saída)", 4, 5, "W18"),
+                ("Acompanhamento O&G (Saída)", 6, 7, "W34"),
+                ("Acompanhamento Nitrogênio - N (Saída)", 8, 9, "AF2"),
+                ("Acompanhamento Fósforo - P (Saída)", 10, 11, "AF18")
+            ]
+            
+            for titulo, col_real, col_limite, celula_excel in graficos_config:
+                # 1. Gráfico em Colunas (Valor Real Medido)
+                bar = BarChart()
+                bar.title = titulo
+                bar.style = 10
+                bar.y_axis.title = "Concentração (mg/L)"
+                bar.x_axis.title = "Data"
+                bar.width = 14
+                bar.height = 8
+                
+                dados_coluna = Reference(ws, min_col=col_real, min_row=1, max_row=len(df_historico)+1)
+                bar.add_data(dados_coluna, titles_from_data=True)
+                bar.set_categories(cats)
+                
+                # 2. Gráfico em Linha (Limite Legal Máximo Permitido)
+                line = LineChart()
+                dados_linha = Reference(ws, min_col=col_limite, min_row=1, max_row=len(df_historico)+1)
+                line.add_data(dados_linha, titles_from_data=True)
+                line.set_categories(cats)
+                
+                # Combinar Colunas + Linha de Limite no mesmo gráfico
+                bar += line
+                
+                # Inserir gráfico na posição definida do Excel
+                ws.add_chart(bar, celula_excel)
 
     excel_data = output.getvalue()
 
