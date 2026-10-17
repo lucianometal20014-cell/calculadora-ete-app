@@ -1,104 +1,49 @@
 import streamlit as st
+import pandas as pd
+from datetime import date, datetime
+import io
 
-# Configuração da página e Título Curto da Aba do Navegador
+# Configuração da página e Título
 st.set_page_config(
     page_title="Calculadora ETE | Eficiência & Nutrientes",
     page_icon="🧪",
-    layout="wide"
-)
-import streamlit as st
-
-# Configuração da página
-st.set_page_config(
-    page_title="Calculadora ETE | Eficiência & Nutrientes",
-    page_icon="🧪",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# =========================================================
-# SISTEMA DE PROTEÇÃO POR SENHA (HOTMART)
-# =================================----------------========
-SENHA_CORRETA = "ETECONTROLE"  # <- Altere aqui para a senha que desejar
-
-def verificar_senha():
-    if "autenticado" not in st.session_state:
-        st.session_state["autenticado"] = False
-
-    if not st.session_state["autenticado"]:
-        st.title("🔒 Acesso Restrito aos Alunos")
-        st.write("Por favor, insira a senha fornecida na sua área de membros da Hotmart para liberar a calculadora.")
-        
-        senha_digitada = st.text_input("Senha de Acesso", type="password")
-        
-        if st.button("Entrar"):
-            if senha_digitada == SENHA_CORRETA:
-                st.session_state["autenticado"] = True
-                st.rerun()  # Recarrega a página autenticado
-            else:
-                st.error("❌ Senha incorreta. Verifique a senha informada no curso da Hotmart.")
-        return False
-    return True
-
-# Se a senha não estiver correta, interrompe a execução do resto do app
-if not verificar_senha():
-    st.stop()
-
-# =========================================================
-# RESTANTE DO SEU CÓDIGO (Só roda se a senha estiver correta)
-# =========================================================
-# (O banner, as vazões, análises e eficiências continuam aqui...)
-
-# Estilo CSS Personalizado Profissional
+# Estilo CSS Personalizado Otimizado para Telemóveis (Android)
 st.markdown("""
 <style>
-    /* Banner do Cabeçalho Principal */
+    /* Estilização para ecrãs pequenos (Mobile Android) */
+    @media (max-width: 768px) {
+        .main-title { font-size: 22px !important; }
+        .kpi-value { font-size: 20px !important; }
+        .kpi-title { font-size: 11px !important; }
+        .stNumberInput { margin-bottom: -10px; }
+    }
+    
     .header-banner {
         background: linear-gradient(135deg, #0f4c81 0%, #1e88e5 100%);
-        padding: 25px 30px;
+        padding: 20px;
         border-radius: 12px;
         color: white;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    .header-banner h1 {
-        color: #ffffff !important;
-        font-size: 28px !important;
-        font-weight: 700 !important;
-        margin-bottom: 8px !important;
-    }
-    .header-banner p {
-        color: #e0f2fe !important;
-        font-size: 15px !important;
-        margin-bottom: 0px !important;
-    }
-
-    /* Cartões KPI para os resultados de eficiência */
+    
     .kpi-card {
         background-color: #ffffff;
         border-radius: 10px;
-        padding: 15px;
-        margin: 5px;
+        padding: 12px;
+        margin-bottom: 10px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         text-align: center;
         border-top: 5px solid #6c757d;
     }
-    .kpi-title {
-        font-size: 13px;
-        color: #555555;
-        font-weight: 600;
-        margin-bottom: 5px;
-    }
-    .kpi-value {
-        font-size: 24px;
-        font-weight: bold;
-        margin-bottom: 2px;
-    }
-    .kpi-sub {
-        font-size: 11px;
-        color: #777777;
-    }
+    .kpi-title { font-size: 12px; color: #555; font-weight: 600; }
+    .kpi-value { font-size: 22px; font-weight: bold; }
+    .kpi-sub { font-size: 10px; color: #777; }
     
-    /* Cores de borda para os cartões */
     .card-blue { border-top-color: #1E88E5 !important; }
     .card-green { border-top-color: #2E7D32 !important; }
     .card-yellow { border-top-color: #F57F17 !important; }
@@ -106,139 +51,110 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Inicializar o histórico de lançamentos na sessão se não existir
+if "historico_lancamentos" not in st.session_state:
+    st.session_state["historico_lancamentos"] = pd.DataFrame()
+
 # CABEÇALHO PROFISSIONAL
 st.markdown("""
 <div class="header-banner">
-    <h1>🧪 Calculadora de Eficiência & Balanço de Nutrientes em ETE</h1>
-    <p>SISTEMA OPERACIONAL DE APOIO AO TRATAMENTO DE EFLUENTES</p>
+    <h1 class="main-title">🧪 Calculadora & Gestão Operacional ETE</h1>
+    <p style="margin:0; font-size:13px;">SISTEMA DE CONTROLO DE EFICIÊNCIA E BALANÇO DE NUTRIENTES</p>
 </div>
 """, unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# SELEÇÃO DA DATA DE LANÇAMENTO
+# ---------------------------------------------------------
+st.subheader("📅 Data do Lançamento Operacional")
+data_lancamento = st.date_input("Selecione a Data das Análises:", value=date.today())
+
+st.markdown("---")
 
 # ---------------------------------------------------------
 # 1. ENTRADA DE DADOS: VAZÕES DIÁRIAS
 # ---------------------------------------------------------
 st.header("💧 1. Vazões Diárias (m³/dia)")
 
-with st.container():
-    col_v1, col_v2 = st.columns(2)
-    
-    with col_v1:
-        st.subheader("📥 Entrada (Efluentes Brutos / Processo)")
-        vazao_sanitario = st.number_input("🚿 Vazão Efluente Sanitário (m³/dia)", min_value=0.0, value=87.14, step=10.0, help="Vazão diária proveniente do esgoto sanitário")
-        vazao_ind_bruto = st.number_input("🏭 Vazão Ind. Bruto (m³/dia)", min_value=0.0, value=371.57, step=10.0, help="Vazão industrial bruta antes do pré-tratamento")
+col_v1, col_v2 = st.columns(2)
+with col_v1:
+    vazao_sanitario = st.number_input("🚿 Vazão Efluente Sanitário", min_value=0.0, value=87.14, step=5.0)
+    vazao_ind_bruto = st.number_input("🏭 Vazão Ind. Bruto", min_value=0.0, value=371.57, step=5.0)
 
-    with col_v2:
-        st.subheader("🔄 Intermediário & Saída")
-        vazao_ind_tratado = st.number_input("⚙️ Vazão Ind. Tratado (m³/dia)", min_value=0.0, value=320.0, step=10.0, help="Vazão industrial encaminhada ao reator biológico após pré-tratamento")
-        vazao_permeado = st.number_input("🌊 Vazão Permeado / Saída Final (m³/dia)", min_value=0.0, value=479.0, step=10.0, help="Vazão total do efluente tratado final (saída)")
-
-vazao_entrada_total = vazao_sanitario + vazao_ind_tratado
+with col_v2:
+    vazao_ind_tratado = st.number_input("⚙️ Vazão Ind. Tratado", min_value=0.0, value=320.0, step=5.0)
+    vazao_permeado = st.number_input("🌊 Vazão Permeado (Saída)", min_value=0.0, value=479.0, step=5.0)
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 2. ENTRADA DE DADOS: ANÁLISES FÍSICO-QUÍMICAS
+# 2. ENTRADA DE DADOS: PARÂMETROS FÍSICO-QUÍMICOS
 # ---------------------------------------------------------
 st.header("🧪 2. Análises Físico-Químicas (mg/L)")
 
 tab_dqo, tab_dbo, tab_nutrientes, tab_og, tab_ph = st.tabs([
-    "🧪 DQO", 
-    "🧫 DBO", 
-    "🌱 Nutrientes (N e P)", 
-    "🛢️ Óleos e Graxas (O&G)", 
-    "⚗️ pH"
+    "🧪 DQO", "🧫 DBO", "🌱 Nutrientes", "🛢️ O&G", "⚗️ pH"
 ])
 
-# ----- ABA DQO -----
 with tab_dqo:
-    st.caption("Insira as concentrações de Demanda Química de Oxigênio (DQO) em mg/L:")
-    col_dqo1, col_dqo2 = st.columns(2)
-    with col_dqo1:
-        dqo_sanitario = st.number_input("DQO Sanitário (mg/L)", min_value=0.0, value=1209.0, key="dqo_san")
-        dqo_ind_bruto = st.number_input("DQO Ind. Bruto (mg/L)", min_value=0.0, value=6980.0, key="dqo_bruto")
-    with col_dqo2:
-        dqo_ind_tratado = st.number_input("DQO Ind. Tratado (mg/L)", min_value=0.0, value=1391.0, key="dqo_trat")
-        dqo_permeado = st.number_input("DQO Permeado / Efluente Final (mg/L)", min_value=0.0, value=73.5, key="dqo_perm")
+    col1, col2 = st.columns(2)
+    dqo_sanitario = col1.number_input("DQO Sanitário", min_value=0.0, value=1209.0, key="dqo_s")
+    dqo_ind_bruto = col1.number_input("DQO Ind. Bruto", min_value=0.0, value=6980.0, key="dqo_b")
+    dqo_ind_tratado = col2.number_input("DQO Ind. Tratado", min_value=0.0, value=1391.0, key="dqo_t")
+    dqo_permeado = col2.number_input("DQO Permeado", min_value=0.0, value=73.5, key="dqo_p")
 
-# ----- ABA DBO -----
 with tab_dbo:
-    st.caption("Insira as concentrações de Demanda Bioquímica de Oxigênio (DBO) em mg/L:")
-    col_dbo1, col_dbo2 = st.columns(2)
-    with col_dbo1:
-        dbo_sanitario = st.number_input("DBO Sanitário (mg/L)", min_value=0.0, value=650.0, key="dbo_san")
-        dbo_ind_bruto = st.number_input("DBO Ind. Bruto (mg/L)", min_value=0.0, value=3100.0, key="dbo_bruto")
-    with col_dbo2:
-        dbo_ind_tratado = st.number_input("DBO Ind. Tratado (mg/L)", min_value=0.0, value=700.0, key="dbo_trat")
-        dbo_permeado = st.number_input("DBO Permeado / Efluente Final (mg/L)", min_value=0.0, value=32.0, key="dbo_perm")
+    col1, col2 = st.columns(2)
+    dbo_sanitario = col1.number_input("DBO Sanitário", min_value=0.0, value=650.0, key="dbo_s")
+    dbo_ind_bruto = col1.number_input("DBO Ind. Bruto", min_value=0.0, value=3100.0, key="dbo_b")
+    dbo_ind_tratado = col2.number_input("DBO Ind. Tratado", min_value=0.0, value=700.0, key="dbo_t")
+    dbo_permeado = col2.number_input("DBO Permeado", min_value=0.0, value=32.0, key="dbo_p")
 
-# ----- ABA NUTRIENTES -----
 with tab_nutrientes:
-    col_n, col_p = st.columns(2)
+    col1, col2 = st.columns(2)
+    n_sanitario = col1.number_input("N Sanitário", min_value=0.0, value=93.1, key="n_s")
+    n_ind_tratado = col1.number_input("N Ind. Tratado", min_value=0.0, value=13.07, key="n_t")
+    n_permeado = col1.number_input("N Permeado", min_value=0.0, value=10.5, key="n_p")
     
-    with col_n:
-        st.subheader("🔵 Nitrogênio Total (N)")
-        n_sanitario = st.number_input("N Sanitário (mg/L)", min_value=0.0, value=93.1, key="n_san")
-        n_ind_tratado = st.number_input("N Ind. Tratado (mg/L)", min_value=0.0, value=13.07, key="n_trat")
-        n_permeado = st.number_input("N Permeado / Efluente Final (mg/L)", min_value=0.0, value=10.5, key="n_perm")
+    p_sanitario = col2.number_input("P Sanitário", min_value=0.0, value=43.6, key="p_s")
+    p_ind_tratado = col2.number_input("P Ind. Tratado", min_value=0.0, value=1.18, key="p_t")
+    p_permeado = col2.number_input("P Permeado", min_value=0.0, value=0.20, key="p_p")
 
-    with col_p:
-        st.subheader("🟢 Fósforo Total (P)")
-        p_sanitario = st.number_input("P Sanitário (mg/L)", min_value=0.0, value=43.6, key="p_san")
-        p_ind_tratado = st.number_input("P Ind. Tratado (mg/L)", min_value=0.0, value=1.18, key="p_trat")
-        p_permeado = st.number_input("P Permeado / Efluente Final (mg/L)", min_value=0.0, value=0.20, key="p_perm")
-
-# ----- ABA O&G -----
 with tab_og:
-    st.caption("Insira as concentrações de Óleos e Graxas (O&G) em mg/L:")
-    col_og1, col_og2 = st.columns(2)
-    with col_og1:
-        og_sanitario = st.number_input("O&G Sanitário (mg/L)", min_value=0.0, value=155.2, key="og_san")
-        og_ind_bruto = st.number_input("O&G Ind. Bruto (mg/L)", min_value=0.0, value=2192.4, key="og_bruto")
-    with col_og2:
-        og_ind_tratado = st.number_input("O&G Ind. Tratado (mg/L)", min_value=0.0, value=283.8, key="og_trat")
-        og_permeado = st.number_input("O&G Permeado / Efluente Final (mg/L)", min_value=0.0, value=49.4, key="og_perm")
+    col1, col2 = st.columns(2)
+    og_sanitario = col1.number_input("O&G Sanitário", min_value=0.0, value=155.2, key="og_s")
+    og_ind_bruto = col1.number_input("O&G Ind. Bruto", min_value=0.0, value=2192.4, key="og_b")
+    og_ind_tratado = col2.number_input("O&G Ind. Tratado", min_value=0.0, value=283.8, key="og_t")
+    og_permeado = col2.number_input("O&G Permeado", min_value=0.0, value=49.4, key="og_p")
 
-# ----- ABA pH -----
 with tab_ph:
-    st.caption("Medições de pH ao longo do processo:")
-    col_ph1, col_ph2 = st.columns(2)
-    with col_ph1:
-        ph_sanitario = st.number_input("pH Sanitário", min_value=0.0, max_value=14.0, value=7.6, key="ph_san")
-        ph_ind_bruto = st.number_input("pH Ind. Bruto", min_value=0.0, max_value=14.0, value=9.7, key="ph_bruto")
-    with col_ph2:
-        ph_ind_tratado = st.number_input("pH Ind. Tratado", min_value=0.0, max_value=14.0, value=7.62, key="ph_trat")
-        ph_permeado = st.number_input("pH Permeado", min_value=0.0, max_value=14.0, value=7.63, key="ph_perm")
+    col1, col2 = st.columns(2)
+    ph_sanitario = col1.number_input("pH Sanitário", min_value=0.0, max_value=14.0, value=7.6, key="ph_s")
+    ph_ind_bruto = col1.number_input("pH Ind. Bruto", min_value=0.0, max_value=14.0, value=9.7, key="ph_b")
+    ph_ind_tratado = col2.number_input("pH Ind. Tratado", min_value=0.0, max_value=14.0, value=7.62, key="ph_t")
+    ph_permeado = col2.number_input("pH Permeado", min_value=0.0, max_value=14.0, value=7.63, key="ph_p")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 3. CÁLCULOS MATEMÁTICOS E BALANÇO OPERACIONAL
+# CÁLCULOS OPERACIONAIS
 # ---------------------------------------------------------
-# Carga de DBO na entrada (Sanitário + Ind. Tratado em kg/dia)
 carga_dbo_sanitario = (vazao_sanitario * dbo_sanitario) / 1000
 carga_dbo_ind_tratado = (vazao_ind_tratado * dbo_ind_tratado) / 1000
 carga_dbo_total_entrada = carga_dbo_sanitario + carga_dbo_ind_tratado
 
-# Cargas Reais de Nutrientes na Entrada (kg/dia)
 carga_n_real = ((vazao_sanitario * n_sanitario) + (vazao_ind_tratado * n_ind_tratado)) / 1000
 carga_p_real = ((vazao_sanitario * p_sanitario) + (vazao_ind_tratado * p_ind_tratado)) / 1000
 
-# Cargas Esperadas (Proporção 100 DBO : 5 N : 1 P)
 carga_n_esperada = carga_dbo_total_entrada * 0.05
 carga_p_esperada = carga_dbo_total_entrada * 0.01
 
-# Desvios de Nutrientes (kg/dia)
 desvio_n_kg = carga_n_real - carga_n_esperada
 desvio_p_kg = carga_p_real - carga_p_esperada
 
-# EFICIÊNCIAS DE REMOÇÃO GLOBAL (%)
-def calcular_eficiencia(entrada_massa, saida_massa):
-    if entrada_massa <= 0:
-        return 0.0
-    ef = ((entrada_massa - saida_massa) / entrada_massa) * 100
-    return max(0.0, ef)
+def calcular_eficiencia(entrada, saida):
+    return max(0.0, ((entrada - saida) / entrada) * 100) if entrada > 0 else 0.0
 
-# Cálculo em massa de entradas e saídas
 m_dqo_in = (dqo_sanitario * vazao_sanitario) + (dqo_ind_bruto * vazao_ind_bruto)
 m_dqo_out = dqo_permeado * vazao_permeado
 efic_dqo = calcular_eficiencia(m_dqo_in, m_dqo_out)
@@ -259,72 +175,107 @@ m_p_in = (p_sanitario * vazao_sanitario) + (p_ind_tratado * vazao_ind_tratado)
 m_p_out = p_permeado * vazao_permeado
 efic_p = calcular_eficiencia(m_p_in, m_p_out)
 
-# Função auxiliar para cor dos cartões com base na eficiência
 def get_color_class(valor):
-    if valor >= 80:
-        return "card-green", "#2E7D32"
-    elif valor >= 50:
-        return "card-yellow", "#F57F17"
-    else:
-        return "card-red", "#C62828"
+    if valor >= 80: return "card-green", "#2E7D32"
+    elif valor >= 50: return "card-yellow", "#F57F17"
+    else: return "card-red", "#C62828"
 
 # ---------------------------------------------------------
-# 4. EXIBIÇÃO DOS RESULTADOS
+# RESULTADOS
 # ---------------------------------------------------------
 st.header("📊 Balanço Nutricional do Reator")
-st.info("💡 **Relação teórica padrão para tratamento biológico:** 100 DBO : 5 N : 1 P")
-
 col_res1, col_res2 = st.columns(2)
 
 with col_res1:
     st.subheader("🔵 Nitrogênio (N)")
     st.metric("Carga Real Entrando", f"{carga_n_real:.2f} kg/dia")
     st.metric("Carga Esperada", f"{carga_n_esperada:.2f} kg/dia")
-    
     if desvio_n_kg < 0:
-        st.error(f"⚠️ **Falta Nutriente:** Dosar **{abs(desvio_n_kg):.2f} kg/dia** de N")
+        st.error(f"⚠️ Dosar **{abs(desvio_n_kg):.2f} kg/dia** de N")
     else:
-        st.success(f"✅ **Excesso Nutricional:** +{desvio_n_kg:.2f} kg/dia de N")
+        st.success(f"✅ Excesso: +{desvio_n_kg:.2f} kg/dia de N")
 
 with col_res2:
     st.subheader("🟢 Fósforo (P)")
     st.metric("Carga Real Entrando", f"{carga_p_real:.2f} kg/dia")
     st.metric("Carga Esperada", f"{carga_p_esperada:.2f} kg/dia")
-    
     if desvio_p_kg < 0:
-        st.error(f"⚠️ **Falta Nutriente:** Dosar **{abs(desvio_p_kg):.2f} kg/dia** de P")
+        st.error(f"⚠️ Dosar **{abs(desvio_p_kg):.2f} kg/dia** de P")
     else:
-        st.success(f"✅ **Excesso Nutricional:** +{desvio_p_kg:.2f} kg/dia de P")
+        st.success(f"✅ Excesso: +{desvio_p_kg:.2f} kg/dia de P")
 
 st.markdown("---")
 
-# PAINEL ILUSTRATIVO DE EFICIÊNCIA GLOBAL
 st.header("📈 Eficiência Global de Remoção")
+c1, c2, c3, c4, c5, c6 = st.columns([1,1,1,1,1,1])
 
-col_c1, col_c2, col_c3, col_c4, col_c5, col_c6 = st.columns(6)
+with c1:
+    st.markdown(f'<div class="kpi-card card-blue"><div class="kpi-title">Carga DBO Entrada</div><div class="kpi-value" style="color:#1E88E5;">{carga_dbo_total_entrada:.1f}</div><div class="kpi-sub">kg/dia</div></div>', unsafe_allow_html=True)
 
-with col_c1:
-    st.markdown(f"""
-    <div class="kpi-card card-blue">
-        <div class="kpi-title">Carga DBO Entrada</div>
-        <div class="kpi-value" style="color:#1E88E5;">{carga_dbo_total_entrada:.1f}</div>
-        <div class="kpi-sub">kg/dia</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-for col, titulo, val in [
-    (col_c2, "Remoção DQO", efic_dqo),
-    (col_c3, "Remoção DBO", efic_dbo),
-    (col_c4, "Remoção O&G", efic_og),
-    (col_c5, "Remoção N", efic_n),
-    (col_c6, "Remoção P", efic_p),
-]:
+for col, titulo, val in [(c2, "Rem. DQO", efic_dqo), (c3, "Rem. DBO", efic_dbo), (c4, "Rem. O&G", efic_og), (c5, "Rem. N", efic_n), (c6, "Rem. P", efic_p)]:
     card_class, color_hex = get_color_class(val)
     with col:
-        st.markdown(f"""
-        <div class="kpi-card {card_class}">
-            <div class="kpi-title">{titulo}</div>
-            <div class="kpi-value" style="color:{color_hex};">{val:.2f}%</div>
-            <div class="kpi-sub">eficiência</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card {card_class}"><div class="kpi-title">{titulo}</div><div class="kpi-value" style="color:{color_hex};">{val:.1f}%</div><div class="kpi-sub">eficiência</div></div>', unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# BOTÃO DE SALVAR LANÇAMENTO E GERAR RELATÓRIO EXCEL/CSV
+# ---------------------------------------------------------
+st.header("💾 Salvar Lançamento & Extrair Relatórios")
+
+if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_container_width=True):
+    novo_registro = {
+        "Data": data_lancamento.strftime("%Y-%m-%d"),
+        "Vazão Sanitário (m³/dia)": vazao_sanitario,
+        "Vazão Ind. Bruto (m³/dia)": vazao_ind_bruto,
+        "Vazão Ind. Tratado (m³/dia)": vazao_ind_tratado,
+        "Vazão Permeado (m³/dia)": vazao_permeado,
+        "Carga DBO Entrada (kg/dia)": round(carga_dbo_total_entrada, 2),
+        "Remoção DQO (%)": round(efic_dqo, 2),
+        "Remoção DBO (%)": round(efic_dbo, 2),
+        "Remoção O&G (%)": round(efic_og, 2),
+        "Remoção N (%)": round(efic_n, 2),
+        "Remoção P (%)": round(efic_p, 2),
+        "Balanço N (kg/dia)": round(desvio_n_kg, 2),
+        "Balanço P (kg/dia)": round(desvio_p_kg, 2)
+    }
+    
+    # Adicionar ao DataFrame existente
+    df_novo = pd.DataFrame([novo_registro])
+    st.session_state["historico_lancamentos"] = pd.concat([st.session_state["historico_lancamentos"], df_novo], ignore_index=True)
+    st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} guardado com sucesso!")
+
+# Exibição da Tabela de Histórico e Filtro por Período
+df_historico = st.session_state["historico_lancamentos"]
+
+if not df_historico.empty:
+    st.subheader("📋 Histórico de Lançamentos Guardados")
+    st.dataframe(df_historico, use_container_width=True)
+
+    # Função para gerar ficheiro Excel para download
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
+    excel_data = output.getvalue()
+
+    col_down1, col_down2 = st.columns(2)
+    with col_down1:
+        st.download_button(
+            label="📥 Descarregar Relatório em Excel (.xlsx)",
+            data=excel_data,
+            file_name=f"Relatorio_Operacional_ETE_{date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    with col_down2:
+        csv_data = df_historico.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📄 Descarregar Relatório em CSV",
+            data=csv_data,
+            file_name=f"Relatorio_Operacional_ETE_{date.today()}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+else:
+    st.info("Nenhum lançamento guardado na sessão atual. Preencha os dados e clique em 'Guardar Lançamento'.")
