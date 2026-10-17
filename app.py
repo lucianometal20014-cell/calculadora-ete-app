@@ -3,9 +3,9 @@ import pandas as pd
 from datetime import date
 import io
 import openpyxl
-from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.chart import BarChart, Reference
 
-# Configuração da página
+# Configuração da página e Título do Navegador
 st.set_page_config(
     page_title="Calculadora ETE | Eficiência & Nutrientes",
     page_icon="🧪",
@@ -290,62 +290,49 @@ df_historico = st.session_state["historico_lancamentos"]
 if not df_historico.empty:
     st.subheader("📋 Histórico de Lançamentos Guardados")
     
-    # VISUALIZAÇÃO LIMITADA A 5 LANÇAMENTOS COM ALTURA FIXA
+    # VISUALIZAÇÃO LIMITADA A 5 LANÇAMENTOS NA TELA
     df_exibicao = df_historico.tail(5)
     st.dataframe(df_exibicao, use_container_width=True, height=210)
 
-    # GERAÇÃO DO FICHEIRO EXCEL COMPLETO
+    # GERAÇÃO DO EXCEL
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
         
+        # Se houver 5 ou mais lançamentos, desenha os gráficos limpos no Excel
         if len(df_historico) >= 5:
             wb = writer.book
             ws = writer.sheets['Relatório ETE']
+            
+            # Referência do Eixo X com as DATAS (Coluna A = 1)
             cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_historico)+1)
             
-            # Mapeamento com escalas e eixos ajustados (Nome, Col Real, Col Limite, Célula, Max Y)
+            # Configuração dos 5 gráficos limpos sem erros de XML
+            # (Título, Coluna Inicial das 2 séries [Real, Limite], Célula Excel)
             graficos_config = [
-                ("Acompanhamento DBO (Saída)", 2, 3, "W2", 100),
-                ("Acompanhamento DQO (Saída)", 4, 5, "W18", 200),
-                ("Acompanhamento O&G (Saída)", 6, 7, "W34", 100),
-                ("Acompanhamento Nitrogênio - N (Saída)", 8, 9, "AF2", 50),
-                ("Acompanhamento Fósforo - P (Saída)", 10, 11, "AF18", 10)
+                ("Acompanhamento DBO (Saída)", 2, "W2"),
+                ("Acompanhamento DQO (Saída)", 4, "W18"),
+                ("Acompanhamento O&G (Saída)", 6, "W34"),
+                ("Acompanhamento Nitrogênio - N (Saída)", 8, "AF2"),
+                ("Acompanhamento Fósforo - P (Saída)", 10, "AF18")
             ]
             
-            ax_id_counter = 100
-            for titulo, col_real, col_limite, celula_excel, max_escala in graficos_config:
-                # 1. Gráfico em Colunas (Eixo Principal - Esquerdo)
-                bar = BarChart()
-                bar.title = titulo
-                bar.style = 10
-                bar.y_axis.title = "Real (mg/L)"
-                bar.x_axis.title = "Data"
-                bar.width = 14
-                bar.height = 8
-                bar.y_axis.scaling.max = max_escala
-                bar.y_axis.scaling.min = 0
-                bar.y_axis.axId = ax_id_counter
-                bar.y_axis.crosses = "min"
+            for titulo, col_inicio, celula_excel in graficos_config:
+                chart = BarChart()
+                chart.title = titulo
+                chart.style = 10
+                chart.y_axis.title = "Concentração (mg/L)"
+                chart.x_axis.title = "Data"
+                chart.width = 14
+                chart.height = 8
                 
-                dados_coluna = Reference(ws, min_col=col_real, min_row=1, max_row=len(df_historico)+1)
-                bar.add_data(dados_coluna, titles_from_data=True)
-                bar.set_categories(cats)
+                # Seleciona as duas colunas vizinhas (Real e Limite) juntas
+                dados = Reference(ws, min_col=col_inicio, min_row=1, max_col=col_inicio+1, max_row=len(df_historico)+1)
+                chart.add_data(dados, titles_from_data=True)
+                chart.set_categories(cats)
                 
-                # 2. Gráfico em Linha (Eixo Secundário - Direito com os Limites)
-                line = LineChart()
-                dados_linha = Reference(ws, min_col=col_limite, min_row=1, max_row=len(df_historico)+1)
-                line.add_data(dados_linha, titles_from_data=True)
-                line.set_categories(cats)
-                line.y_axis.axId = ax_id_counter + 1
-                line.y_axis.title = "Limite (mg/L)"
-                line.y_axis.crosses = "max"
-                line.y_axis.scaling.max = max_escala
-                line.y_axis.scaling.min = 0
-                
-                bar += line
-                ws.add_chart(bar, celula_excel)
-                ax_id_counter += 10
+                # Insere o gráfico na posição
+                ws.add_chart(chart, celula_excel)
 
     excel_data = output.getvalue()
 
