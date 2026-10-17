@@ -16,7 +16,7 @@ st.set_page_config(
 # =========================================================
 # SISTEMA DE PROTEÇÃO POR SENHA (HOTMART)
 # =========================================================
-SENHA_CORRETA = "ETE2026"  # <- Senha fornecida aos alunos na Hotmart
+SENHA_CORRETA = "ETECONTROLE"  # <- Senha fornecida aos alunos na Hotmart
 
 def verificar_senha():
     if "autenticado" not in st.session_state:
