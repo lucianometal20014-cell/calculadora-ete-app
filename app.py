@@ -295,7 +295,7 @@ if not df_historico.empty:
     df_exibicao = df_historico.tail(5)
     st.dataframe(df_exibicao, use_container_width=True, height=210)
 
-    # GERAÇÃO DO EXCEL
+    # GERAÇÃO DO EXCEL COM GRÁFICOS COMBINADOS LIMPOS
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
@@ -304,7 +304,7 @@ if not df_historico.empty:
             wb = writer.book
             ws = writer.sheets['Relatório ETE']
             
-            # Referência do Eixo X com as DATAS exatas (Coluna A = 1)
+            # Referência das DATAS para o Eixo X
             cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_historico)+1)
             
             # Mapeamento dos parâmetros (Título, Coluna Real, Coluna Limite, Célula do Gráfico)
@@ -326,9 +326,12 @@ if not df_historico.empty:
                 bar.width = 15
                 bar.height = 9
                 
-                # Exibe o valor numérico dentro/em cima de cada coluna
+                # CONFIGURAÇÃO DE RÓTULO LIMPO: Mostra APENAS o Valor centralizado
                 bar.dataLabels = DataLabelList()
                 bar.dataLabels.showVal = True
+                bar.dataLabels.showSerName = False  # Esconde o nome da série repetido
+                bar.dataLabels.showCatName = False  # Esconde a data/categoria repetida
+                bar.dataLabels.position = "ctr"     # Centraliza o número dentro da coluna
                 
                 dados_bar = Reference(ws, min_col=col_real, min_row=1, max_row=len(df_historico)+1)
                 bar.add_data(dados_bar, titles_from_data=True)
@@ -343,7 +346,7 @@ if not df_historico.empty:
                 # Combina Barras + Linha no mesmo gráfico
                 bar += line
                 
-                # Insere o gráfico na planilha
+                # Insere na planilha
                 ws.add_chart(bar, celula_excel)
 
     excel_data = output.getvalue()
