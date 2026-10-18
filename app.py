@@ -5,6 +5,8 @@ import io
 import openpyxl
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.chart.label import DataLabelList
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.styles import PatternFill, Font
 
 # Configuração da página e Título do Navegador
 st.set_page_config(
@@ -294,31 +296,77 @@ if not df_historico.empty:
     df_historico = df_historico.sort_values(by="Data_Dt", ascending=True)
 
     # 2. Converte a coluna 'Data' para Texto Formatado (DD/MM/YYYY)
-    # Isso impede que o Excel trate como Eixo Temporal e force espaços vazios
     df_historico['Data'] = df_historico['Data_Dt'].dt.strftime('%d/%m/%Y')
     df_excel = df_historico.drop(columns=['Data_Dt'])
 
     st.subheader("📋 Histórico de Lançamentos Guardados")
     
-    # Exibição dos 5 últimos lançamentos no App
-    df_exibicao = df_excel.tail(5)
-    st.dataframe(df_exibicao, use_container_width=True, height=210)
+    # Exibição dos 5 últimos lançamentos com Destaque de Cor na Tela
+    df_exibicao = df_excel.tail(5).copy()
+
+    # Função para destacar o Streamlit (Verde se <= Limite, Vermelho se > Limite)
+    def destacar_limites_streamlit(df):
+        style_df = pd.DataFrame('', index=df.index, columns=df.columns)
+        pares_parametros = [
+            ("DBO Permeado (mg/L)", "DBO Limite (mg/L)"),
+            ("DQO Permeado (mg/L)", "DQO Limite (mg/L)"),
+            ("O&G Permeado (mg/L)", "O&G Limite (mg/L)"),
+            ("N Permeado (mg/L)", "N Limite (mg/L)"),
+            ("P Permeado (mg/L)", "P Limite (mg/L)")
+        ]
+        for col_perm, col_lim in pares_parametros:
+            if col_perm in df.columns and col_lim in df.columns:
+                abaixo_ou_igual = df[col_perm] <= df[col_lim]
+                style_df.loc[abaixo_ou_igual, col_perm] = 'background-color: #C6EFCE; color: #006100; font-weight: bold;'
+                style_df.loc[~abaixo_ou_igual, col_perm] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+        return style_df
+
+    st.dataframe(df_exibicao.style.apply(destacar_limites_streamlit, axis=None), use_container_width=True, height=210)
 
     # GERAÇÃO DO EXCEL
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_excel.to_excel(writer, index=False, sheet_name='Relatório ETE')
         
+        wb = writer.book
+        ws = writer.sheets['Relatório ETE']
+        max_linha = len(df_excel) + 1
+        
+        # Formatando as células da coluna Data como texto
+        for cell in ws['A'][1:]:
+            cell.number_format = '@'
+
+        # Estilos de Formatação Condicional no Excel
+        green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        green_font = Font(color="006100", bold=True)
+        red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        red_font = Font(color="9C0006", bold=True)
+
+        # Mapeamento de Colunas do Excel (Letra Permeado, Letra Limite)
+        # B: DBO Perm, C: DBO Lim
+        # D: DQO Perm, E: DQO Lim
+        # F: O&G Perm, G: O&G Lim
+        # H: N Perm, I: N Lim
+        # J: P Perm, K: P Lim
+        mapeamento_colunas_excel = [
+            ("B", "C"),
+            ("D", "E"),
+            ("F", "G"),
+            ("H", "I"),
+            ("J", "K")
+        ]
+
+        # Aplicar regras de formatação condicional dinâmicas no Excel
+        for col_perm, col_lim in mapeamento_colunas_excel:
+            intervalo = f"{col_perm}2:{col_perm}{max_linha}"
+            regra_verde = FormulaRule(formula=[f"{col_perm}2<={col_lim}2"], stopIfTrue=True, fill=green_fill, font=green_font)
+            regra_vermelha = FormulaRule(formula=[f"{col_perm}2>{col_lim}2"], stopIfTrue=True, fill=red_fill, font=red_font)
+            ws.conditional_formatting.add(intervalo, regra_verde)
+            ws.conditional_formatting.add(intervalo, regra_vermelha)
+
+        # Se houver 5 ou mais lançamentos, cria os gráficos
         if len(df_excel) >= 5:
-            wb = writer.book
-            ws = writer.sheets['Relatório ETE']
-            
-            # Força as células da coluna A a serem texto explícito para o Excel não converter em escala temporal
-            for cell in ws['A'][1:]:
-                cell.number_format = '@'
-            
-            # Referência do Eixo X com as categorias de texto (Coluna A = 1)
-            cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_excel)+1)
+            cats = Reference(ws, min_col=1, min_row=2, max_row=max_linha)
             
             graficos_config = [
                 ("Acompanhamento DBO (Saída)", 2, 3, "W2"),
@@ -329,7 +377,6 @@ if not df_historico.empty:
             ]
             
             for titulo, col_real, col_limite, celula_excel in graficos_config:
-                # 1. Gráfico em BARRAS para o Valor Real Medido
                 bar = BarChart()
                 bar.title = titulo
                 bar.style = 10
@@ -338,27 +385,22 @@ if not df_historico.empty:
                 bar.width = 15
                 bar.height = 9
                 
-                # Exibe somente o número centralizado dentro da barra
                 bar.dataLabels = DataLabelList()
                 bar.dataLabels.showVal = True
                 bar.dataLabels.showSerName = False
                 bar.dataLabels.showCatName = False
                 bar.dataLabels.position = "ctr"
                 
-                dados_bar = Reference(ws, min_col=col_real, min_row=1, max_row=len(df_excel)+1)
+                dados_bar = Reference(ws, min_col=col_real, min_row=1, max_row=max_linha)
                 bar.add_data(dados_bar, titles_from_data=True)
                 bar.set_categories(cats)
                 
-                # 2. Gráfico em LINHA para o Limite Legal Permitido
                 line = LineChart()
-                dados_line = Reference(ws, min_col=col_limite, min_row=1, max_row=len(df_excel)+1)
+                dados_line = Reference(ws, min_col=col_limite, min_row=1, max_row=max_linha)
                 line.add_data(dados_line, titles_from_data=True)
                 line.set_categories(cats)
                 
-                # Sobreposição da Linha sobre as Barras
                 bar += line
-                
-                # Insere o gráfico na planilha
                 ws.add_chart(bar, celula_excel)
 
     excel_data = output.getvalue()
