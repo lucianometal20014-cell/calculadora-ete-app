@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 import io
 import openpyxl
 from openpyxl.chart import BarChart, LineChart, Reference
@@ -257,7 +257,7 @@ st.header("💾 Salvar Lançamento & Extrair Relatórios")
 
 if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_container_width=True):
     novo_registro = {
-        "Data": data_lancamento.strftime("%Y-%m-%d"),
+        "Data": data_lancamento,
         "DBO Permeado (mg/L)": dbo_permeado,
         "DBO Limite (mg/L)": 60.0,
         "DQO Permeado (mg/L)": dqo_permeado,
@@ -286,28 +286,36 @@ if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_co
     st.session_state["historico_lancamentos"] = pd.concat([st.session_state["historico_lancamentos"], df_novo], ignore_index=True)
     st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} guardado com sucesso!")
 
-df_historico = st.session_state["historico_lancamentos"]
+df_historico = st.session_state["historico_lancamentos"].copy()
 
 if not df_historico.empty:
+    # 1. ORDENAÇÃO CRONOLÓGICA CRESCENTE DAS DATAS
+    df_historico['Data'] = pd.to_datetime(df_historico['Data'])
+    df_historico = df_historico.sort_values(by="Data", ascending=True)
+
     st.subheader("📋 Histórico de Lançamentos Guardados")
     
-    # VISUALIZAÇÃO LIMITADA A 5 LANÇAMENTOS NA TELA DO APP
-    df_exibicao = df_historico.tail(5)
+    # Exibição dos 5 últimos na tela com a data formatada
+    df_exibicao = df_historico.tail(5).copy()
+    df_exibicao['Data'] = df_exibicao['Data'].dt.strftime('%Y-%m-%d')
     st.dataframe(df_exibicao, use_container_width=True, height=210)
 
-    # GERAÇÃO DO EXCEL COM GRÁFICOS COMBINADOS LIMPOS
+    # GERAÇÃO DO FICHEIRO EXCEL COM FORMATAÇÃO NATIVA DE DATA
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl', datetime_format='dd/mm/yyyy') as writer:
         df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
         
         if len(df_historico) >= 5:
             wb = writer.book
             ws = writer.sheets['Relatório ETE']
             
-            # Referência das DATAS para o Eixo X
+            # Formatar a coluna A do Excel explicitamente como data (dd/mm/yyyy)
+            for cell in ws['A'][1:]:
+                cell.number_format = 'dd/mm/yyyy'
+            
+            # Referência do Eixo X para as DATAS (Coluna A = 1)
             cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_historico)+1)
             
-            # Mapeamento dos parâmetros (Título, Coluna Real, Coluna Limite, Célula do Gráfico)
             graficos_config = [
                 ("Acompanhamento DBO (Saída)", 2, 3, "W2"),
                 ("Acompanhamento DQO (Saída)", 4, 5, "W18"),
@@ -317,36 +325,37 @@ if not df_historico.empty:
             ]
             
             for titulo, col_real, col_limite, celula_excel in graficos_config:
-                # 1. Gráfico em BARRAS para o Valor Real Medido
+                # 1. Gráfico em BARRAS para o Valor Real
                 bar = BarChart()
                 bar.title = titulo
                 bar.style = 10
                 bar.y_axis.title = "Concentração (mg/L)"
                 bar.x_axis.title = "Data"
+                bar.x_axis.number_format = 'dd/mm/yyyy'  # Formato das datas no eixo
                 bar.width = 15
                 bar.height = 9
                 
-                # CONFIGURAÇÃO DE RÓTULO LIMPO: Mostra APENAS o Valor centralizado
+                # Rótulo de dados centralizado
                 bar.dataLabels = DataLabelList()
                 bar.dataLabels.showVal = True
-                bar.dataLabels.showSerName = False  # Esconde o nome da série repetido
-                bar.dataLabels.showCatName = False  # Esconde a data/categoria repetida
-                bar.dataLabels.position = "ctr"     # Centraliza o número dentro da coluna
+                bar.dataLabels.showSerName = False
+                bar.dataLabels.showCatName = False
+                bar.dataLabels.position = "ctr"
                 
                 dados_bar = Reference(ws, min_col=col_real, min_row=1, max_row=len(df_historico)+1)
                 bar.add_data(dados_bar, titles_from_data=True)
                 bar.set_categories(cats)
                 
-                # 2. Gráfico em LINHA para o Limite Legal Permitido
+                # 2. Gráfico em LINHA para o Limite Legal
                 line = LineChart()
                 dados_line = Reference(ws, min_col=col_limite, min_row=1, max_row=len(df_historico)+1)
                 line.add_data(dados_line, titles_from_data=True)
                 line.set_categories(cats)
                 
-                # Combina Barras + Linha no mesmo gráfico
+                # Overlay
                 bar += line
                 
-                # Insere na planilha
+                # Adicionar gráfico na planilha
                 ws.add_chart(bar, celula_excel)
 
     excel_data = output.getvalue()
@@ -361,7 +370,9 @@ if not df_historico.empty:
             use_container_width=True
         )
     with col_down2:
-        csv_data = df_historico.to_csv(index=False).encode('utf-8')
+        df_csv = df_historico.copy()
+        df_csv['Data'] = df_csv['Data'].dt.strftime('%Y-%m-%d')
+        csv_data = df_csv.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📄 Descarregar Relatório em CSV",
             data=csv_data,
