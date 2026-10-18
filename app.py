@@ -260,28 +260,28 @@ st.header("💾 Salvar Lançamento & Extrair Relatórios")
 if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_container_width=True):
     novo_registro = {
         "Data": data_lancamento,
-        "DBO Permeado (mg/L)": dbo_permeado,
-        "DBO Limite (mg/L)": 60.0,
-        "DQO Permeado (mg/L)": dqo_permeado,
-        "DQO Limite (mg/L)": 120.0,
-        "O&G Permeado (mg/L)": og_permeado,
-        "O&G Limite (mg/L)": 50.0,
-        "N Permeado (mg/L)": n_permeado,
-        "N Limite (mg/L)": 20.0,
-        "P Permeado (mg/L)": p_permeado,
-        "P Limite (mg/L)": 5.0,
-        "Vazão Sanitário (m³/dia)": vazao_sanitario,
-        "Vazão Ind. Bruto (m³/dia)": vazao_ind_bruto,
-        "Vazão Ind. Tratado (m³/dia)": vazao_ind_tratado,
-        "Vazão Permeado (m³/dia)": vazao_permeado,
-        "Carga DBO Entrada (kg/dia)": round(carga_dbo_total_entrada, 2),
-        "Remoção DQO (%)": round(efic_dqo, 2),
-        "Remoção DBO (%)": round(efic_dbo, 2),
-        "Remoção O&G (%)": round(efic_og, 2),
-        "Remoção N (%)": round(efic_n, 2),
-        "Remoção P (%)": round(efic_p, 2),
-        "Balanço N (kg/dia)": round(desvio_n_kg, 2),
-        "Balanço P (kg/dia)": round(desvio_p_kg, 2)
+        "DBO Permeado (mg/L)": round(float(dbo_permeado), 2),
+        "DBO Limite (mg/L)": 60.00,
+        "DQO Permeado (mg/L)": round(float(dqo_permeado), 2),
+        "DQO Limite (mg/L)": 120.00,
+        "O&G Permeado (mg/L)": round(float(og_permeado), 2),
+        "O&G Limite (mg/L)": 50.00,
+        "N Permeado (mg/L)": round(float(n_permeado), 2),
+        "N Limite (mg/L)": 20.00,
+        "P Permeado (mg/L)": round(float(p_permeado), 2),
+        "P Limite (mg/L)": 5.00,
+        "Vazão Sanitário (m³/dia)": round(float(vazao_sanitario), 2),
+        "Vazão Ind. Bruto (m³/dia)": round(float(vazao_ind_bruto), 2),
+        "Vazão Ind. Tratado (m³/dia)": round(float(vazao_ind_tratado), 2),
+        "Vazão Permeado (m³/dia)": round(float(vazao_permeado), 2),
+        "Carga DBO Entrada (kg/dia)": round(float(carga_dbo_total_entrada), 2),
+        "Remoção DQO (%)": round(float(efic_dqo), 2),
+        "Remoção DBO (%)": round(float(efic_dbo), 2),
+        "Remoção O&G (%)": round(float(efic_og), 2),
+        "Remoção N (%)": round(float(efic_n), 2),
+        "Remoção P (%)": round(float(efic_p), 2),
+        "Balanço N (kg/dia)": round(float(desvio_n_kg), 2),
+        "Balanço P (kg/dia)": round(float(desvio_p_kg), 2)
     }
     
     df_novo = pd.DataFrame([novo_registro])
@@ -291,17 +291,17 @@ if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_co
 df_historico = st.session_state["historico_lancamentos"].copy()
 
 if not df_historico.empty:
-    # 1. Ordenação cronológica real por data
+    # 1. Ordenação cronológica por data
     df_historico['Data_Dt'] = pd.to_datetime(df_historico['Data'])
     df_historico = df_historico.sort_values(by="Data_Dt", ascending=True)
 
-    # 2. Converte a coluna 'Data' para Texto Formatado (DD/MM/YYYY)
+    # 2. Converte 'Data' para Texto Formatado (DD/MM/YYYY)
     df_historico['Data'] = df_historico['Data_Dt'].dt.strftime('%d/%m/%Y')
     df_excel = df_historico.drop(columns=['Data_Dt'])
 
     st.subheader("📋 Histórico de Lançamentos Guardados")
     
-    # Exibição dos 5 últimos lançamentos com Destaque de Cor na Tela
+    # Exibição dos 5 últimos no Streamlit com formatação de 2 casas decimais ({:.2f})
     df_exibicao = df_excel.tail(5).copy()
 
     # Função para destacar o Streamlit (Verde se <= Limite, Vermelho se > Limite)
@@ -321,9 +321,14 @@ if not df_historico.empty:
                 style_df.loc[~abaixo_ou_igual, col_perm] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
         return style_df
 
-    st.dataframe(df_exibicao.style.apply(destacar_limites_streamlit, axis=None), use_container_width=True, height=210)
+    cols_numericas = [c for c in df_exibicao.columns if c != "Data"]
+    st.dataframe(
+        df_exibicao.style.apply(destacar_limites_streamlit, axis=None).format("{:.2f}", subset=cols_numericas),
+        use_container_width=True,
+        height=210
+    )
 
-    # GERAÇÃO DO EXCEL
+    # GERAÇÃO DO EXCEL COM DUAS CASAS DECIMAIS
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_excel.to_excel(writer, index=False, sheet_name='Relatório ETE')
@@ -332,9 +337,14 @@ if not df_historico.empty:
         ws = writer.sheets['Relatório ETE']
         max_linha = len(df_excel) + 1
         
-        # Formatando as células da coluna Data como texto
+        # Formatando as células da coluna Data como texto e os números com 2 casas decimais (0.00)
         for cell in ws['A'][1:]:
             cell.number_format = '@'
+            
+        for row in ws.iter_rows(min_row=2, max_row=max_linha, min_col=2, max_col=ws.max_column):
+            for cell in row:
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = '0.00'
 
         # Estilos de Formatação Condicional no Excel
         green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -342,12 +352,6 @@ if not df_historico.empty:
         red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
         red_font = Font(color="9C0006", bold=True)
 
-        # Mapeamento de Colunas do Excel (Letra Permeado, Letra Limite)
-        # B: DBO Perm, C: DBO Lim
-        # D: DQO Perm, E: DQO Lim
-        # F: O&G Perm, G: O&G Lim
-        # H: N Perm, I: N Lim
-        # J: P Perm, K: P Lim
         mapeamento_colunas_excel = [
             ("B", "C"),
             ("D", "E"),
@@ -364,7 +368,7 @@ if not df_historico.empty:
             ws.conditional_formatting.add(intervalo, regra_verde)
             ws.conditional_formatting.add(intervalo, regra_vermelha)
 
-        # Se houver 5 ou mais lançamentos, cria os gráficos
+        # Se houver 5 ou mais lançamentos, desenha os gráficos
         if len(df_excel) >= 5:
             cats = Reference(ws, min_col=1, min_row=2, max_row=max_linha)
             
