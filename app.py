@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import io
+import sqlite3
+import hashlib
 import openpyxl
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.chart.label import DataLabelList
@@ -10,44 +12,141 @@ from openpyxl.styles import PatternFill, Font
 
 # Configuração da página e Título do Navegador
 st.set_page_config(
-    page_title="Calculadora ETE | Eficiência & Nutrientes",
+    page_title="Calculadora ETE | Gestão & Auditoria",
     page_icon="🧪",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # =========================================================
-# SISTEMA DE PROTEÇÃO POR SENHA (HOTMART)
+# BANCO DE DADOS E AUTENTICAÇÃO (SISTEMA MULTI-USUÁRIO)
 # =========================================================
-SENHA_CORRETA = "ETECONTROLE"  # <- Senha fornecida aos alunos na Hotmart
+DB_NAME = "ete_database.db"
 
-def verificar_senha():
-    if "autenticado" not in st.session_state:
-        st.session_state["autenticado"] = False
+def init_db():
+    """Inicializa as tabelas de usuários e lançamentos operacionais no banco de dados."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Tabela de Usuários (Contas individuais)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            senha_hash TEXT NOT NULL,
+            nome TEXT NOT NULL,
+            data_cadastro DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Tabela de Lançamentos Operacionais (Vinculados por usuario_id)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lancamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            dbo_permeado REAL, dbo_limite REAL,
+            dqo_permeado REAL, dqo_limite REAL,
+            og_permeado REAL, og_limite REAL,
+            n_permeado REAL, n_limite REAL,
+            p_permeado REAL, p_limite REAL,
+            vazao_sanitario REAL, vazao_ind_bruto REAL,
+            vazao_ind_tratado REAL, vazao_permeado REAL,
+            carga_dbo_entrada REAL, rem_dqo REAL, rem_dbo REAL,
+            rem_og REAL, rem_n REAL, rem_p REAL,
+            balanco_n REAL, balanco_p REAL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-    if not st.session_state["autenticado"]:
-        st.title("🔒 Acesso Restrito aos Alunos")
-        st.write("Por favor, insira a senha fornecida na sua área de membros da Hotmart para liberar o aplicativo.")
+init_db()
+
+def hash_senha(senha):
+    """Gera um Hash seguro para a senha."""
+    return hashlib.sha256(senha.encode()).hexdigest()
+
+def cadastrar_usuario(nome, email, senha):
+    """Cadastra um novo usuário de forma única no banco de dados."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO usuarios (nome, email, senha_hash) VALUES (?, ?, ?)",
+            (nome, email.lower().strip(), hash_senha(senha))
+        )
+        conn.commit()
+        conn.close()
+        return True, "✅ Conta criada com sucesso! Faça login para acessar o sistema."
+    except sqlite3.IntegrityError:
+        return False, "⚠️ Este e-mail já está cadastrado no sistema."
+    except Exception as e:
+        return False, f"❌ Erro ao cadastrar: {str(e)}"
+
+def autenticar_usuario(email, senha):
+    """Valida o e-mail e a senha do usuário."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, nome, email FROM usuarios WHERE email = ? AND senha_hash = ?",
+        (email.lower().strip(), hash_senha(senha))
+    )
+    user = cursor.fetchone()
+    conn.close()
+    return user
+
+# Gerenciamento do estado da sessão do usuário
+if "usuario_logado" not in st.session_state:
+    st.session_state["usuario_logado"] = None
+
+# =========================================================
+# TELA DE LOGIN E CADASTRO
+# =========================================================
+if st.session_state["usuario_logado"] is None:
+    st.title("🔐 Acesso à Plataforma ETE Operacional")
+    st.write("Bem-vindo! Faça login ou crie a sua conta para acessar o sistema de auditoria.")
+    
+    tab_login, tab_cadastro = st.tabs(["🔑 Entrar na Conta", "📝 Criar Nova Conta"])
+    
+    with tab_login:
+        email_login = st.text_input("E-mail de Acesso", key="login_email")
+        senha_login = st.text_input("Senha", type="password", key="login_senha")
         
-        senha_digitada = st.text_input("Senha de Acesso", type="password")
-        
-        if st.button("Entrar", type="primary", use_container_width=True):
-            if senha_digitada == SENHA_CORRETA:
-                st.session_state["autenticado"] = True
+        if st.button("Entrar no Sistema", type="primary", use_container_width=True):
+            user = autenticar_usuario(email_login, senha_login)
+            if user:
+                st.session_state["usuario_logado"] = {"id": user[0], "nome": user[1], "email": user[2]}
+                st.success(f"Bem-vindo, {user[1]}!")
                 st.rerun()
             else:
-                st.error("❌ Senha incorreta. Verifique a senha informada no curso da Hotmart.")
-        return False
-    return True
-
-if not verificar_senha():
-    st.stop()
+                st.error("❌ E-mail ou senha incorretos. Tente novamente.")
+                
+    with tab_cadastro:
+        nome_reg = st.text_input("Seu Nome Completo", key="reg_nome")
+        email_reg = st.text_input("Seu E-mail (o mesmo da Hotmart)", key="reg_email")
+        senha_reg = st.text_input("Crie uma Senha Forte", type="password", key="reg_senha")
+        
+        if st.button("Cadastrar e Liberar Acesso", use_container_width=True):
+            if nome_reg and email_reg and senha_reg:
+                sucesso, msg = cadastrar_usuario(nome_reg, email_reg, senha_reg)
+                if sucesso:
+                    st.success(msg)
+                else:
+                    st.warning(msg)
+            else:
+                st.error("⚠️ Preencha todos os campos para se cadastrar.")
+    
+    st.stop()  # Interrompe o script para quem não está logado
 
 # =========================================================
-# APLICAÇÃO PRINCIPAL
+# SISTEMA PRINCIPAL (APÓS LOGIN BEM-SUCEDIDO)
 # =========================================================
+user_id_atual = st.session_state["usuario_logado"]["id"]
+nome_usuario = st.session_state["usuario_logado"]["nome"]
 
-# Estilo CSS Personalizado Otimizado para Telemóveis (Android)
+# Estilo CSS Personalizado
 st.markdown("""
 <style>
     @media (max-width: 768px) {
@@ -85,16 +184,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-if "historico_lancamentos" not in st.session_state:
-    st.session_state["historico_lancamentos"] = pd.DataFrame()
+# CABEÇALHO PROFISSIONAL COM BOTÃO DE LOGOUT
+col_head1, col_head2 = st.columns([4, 1])
+with col_head1:
+    st.markdown(f"""
+    <div class="header-banner">
+        <h1 class="main-title">🧪 Calculadora & Gestão Operacional ETE</h1>
+        <p style="margin:0; font-size:13px;">PAINEL EXCLUSIVO: {nome_usuario.upper()}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-# CABEÇALHO PROFISSIONAL
-st.markdown("""
-<div class="header-banner">
-    <h1 class="main-title">🧪 Calculadora & Gestão Operacional ETE</h1>
-    <p style="margin:0; font-size:13px;">SISTEMA DE CONTROLO DE EFICIÊNCIA E BALANÇO DE NUTRIENTES</p>
-</div>
-""", unsafe_allow_html=True)
+with col_head2:
+    if st.button("🚪 Sair / Logout", use_container_width=True):
+        st.session_state["usuario_logado"] = None
+        st.rerun()
 
 # ---------------------------------------------------------
 # DATA DE LANÇAMENTO
@@ -253,58 +356,74 @@ for col, titulo, val in [(c2, "Rem. DQO", efic_dqo), (c3, "Rem. DBO", efic_dbo),
 st.markdown("---")
 
 # ---------------------------------------------------------
-# BOTÃO DE SALVAR LANÇAMENTO E EXTRAIR EXCEL
+# GRAVAÇÃO PERMANENTE NO BANCO DE DADOS DA CONTA LOGADA
 # ---------------------------------------------------------
 st.header("💾 Salvar Lançamento & Extrair Relatórios")
 
-if st.button("💾 Guardar Lançamento na Base de Dados", type="primary", use_container_width=True):
-    novo_registro = {
-        "Data": data_lancamento,
-        "DBO Permeado (mg/L)": round(float(dbo_permeado), 2),
-        "DBO Limite (mg/L)": 60.00,
-        "DQO Permeado (mg/L)": round(float(dqo_permeado), 2),
-        "DQO Limite (mg/L)": 120.00,
-        "O&G Permeado (mg/L)": round(float(og_permeado), 2),
-        "O&G Limite (mg/L)": 50.00,
-        "N Permeado (mg/L)": round(float(n_permeado), 2),
-        "N Limite (mg/L)": 20.00,
-        "P Permeado (mg/L)": round(float(p_permeado), 2),
-        "P Limite (mg/L)": 5.00,
-        "Vazão Sanitário (m³/dia)": round(float(vazao_sanitario), 2),
-        "Vazão Ind. Bruto (m³/dia)": round(float(vazao_ind_bruto), 2),
-        "Vazão Ind. Tratado (m³/dia)": round(float(vazao_ind_tratado), 2),
-        "Vazão Permeado (m³/dia)": round(float(vazao_permeado), 2),
-        "Carga DBO Entrada (kg/dia)": round(float(carga_dbo_total_entrada), 2),
-        "Remoção DQO (%)": round(float(efic_dqo), 2),
-        "Remoção DBO (%)": round(float(efic_dbo), 2),
-        "Remoção O&G (%)": round(float(efic_og), 2),
-        "Remoção N (%)": round(float(efic_n), 2),
-        "Remoção P (%)": round(float(efic_p), 2),
-        "Balanço N (kg/dia)": round(float(desvio_n_kg), 2),
-        "Balanço P (kg/dia)": round(float(desvio_p_kg), 2)
-    }
-    
-    df_novo = pd.DataFrame([novo_registro])
-    st.session_state["historico_lancamentos"] = pd.concat([st.session_state["historico_lancamentos"], df_novo], ignore_index=True)
-    st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} guardado com sucesso!")
+if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", use_container_width=True):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO lancamentos (
+            usuario_id, data, dbo_permeado, dbo_limite, dqo_permeado, dqo_limite,
+            og_permeado, og_limite, n_permeado, n_limite, p_permeado, p_limite,
+            vazao_sanitario, vazao_ind_bruto, vazao_ind_tratado, vazao_permeado,
+            carga_dbo_entrada, rem_dqo, rem_dbo, rem_og, rem_n, rem_p,
+            balanco_n, balanco_p
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id_atual, data_lancamento.strftime("%Y-%m-%d"),
+        round(float(dbo_permeado), 2), 60.00,
+        round(float(dqo_permeado), 2), 120.00,
+        round(float(og_permeado), 2), 50.00,
+        round(float(n_permeado), 2), 20.00,
+        round(float(p_permeado), 2), 5.00,
+        round(float(vazao_sanitario), 2), round(float(vazao_ind_bruto), 2),
+        round(float(vazao_ind_tratado), 2), round(float(vazao_permeado), 2),
+        round(float(carga_dbo_total_entrada), 2), round(float(efic_dqo), 2),
+        round(float(efic_dbo), 2), round(float(efic_og), 2),
+        round(float(efic_n), 2), round(float(efic_p), 2),
+        round(float(desvio_n_kg), 2), round(float(desvio_p_kg), 2)
+    ))
+    conn.commit()
+    conn.close()
+    st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} gravado permanentemente na sua conta!")
 
-df_historico = st.session_state["historico_lancamentos"].copy()
+# ---------------------------------------------------------
+# CARREGAR DADOS HISTÓRICOS APENAS DO USUÁRIO LOGADO
+# ---------------------------------------------------------
+conn = sqlite3.connect(DB_NAME)
+query = """
+    SELECT 
+        data AS "Data",
+        dbo_permeado AS "DBO Permeado (mg/L)", dbo_limite AS "DBO Limite (mg/L)",
+        dqo_permeado AS "DQO Permeado (mg/L)", dqo_limite AS "DQO Limite (mg/L)",
+        og_permeado AS "O&G Permeado (mg/L)", og_limite AS "O&G Limite (mg/L)",
+        n_permeado AS "N Permeado (mg/L)", n_limite AS "N Limite (mg/L)",
+        p_permeado AS "P Permeado (mg/L)", p_limite AS "P Limite (mg/L)",
+        vazao_sanitario AS "Vazão Sanitário (m³/dia)", vazao_ind_bruto AS "Vazão Ind. Bruto (m³/dia)",
+        vazao_ind_tratado AS "Vazão Ind. Tratado (m³/dia)", vazao_permeado AS "Vazão Permeado (m³/dia)",
+        carga_dbo_entrada AS "Carga DBO Entrada (kg/dia)", rem_dqo AS "Remoção DQO (%)",
+        rem_dbo AS "Remoção DBO (%)", rem_og AS "Remoção O&G (%)", rem_n AS "Remoção N (%)",
+        rem_p AS "Remoção P (%)", balanco_n AS "Balanço N (kg/dia)", balanco_p AS "Balanço P (kg/dia)"
+    FROM lancamentos 
+    WHERE usuario_id = ?
+    ORDER BY date(data) ASC
+"""
+df_historico = pd.read_sql_query(query, conn, params=(user_id_atual,))
+conn.close()
 
 if not df_historico.empty:
-    # 1. Ordenação cronológica por data
+    st.subheader("📋 Histórico Permanente de Lançamentos do Usuário")
+    
+    # Converte 'Data' para Texto Formatado (DD/MM/YYYY)
     df_historico['Data_Dt'] = pd.to_datetime(df_historico['Data'])
-    df_historico = df_historico.sort_values(by="Data_Dt", ascending=True)
-
-    # 2. Converte 'Data' para Texto Formatado (DD/MM/YYYY)
     df_historico['Data'] = df_historico['Data_Dt'].dt.strftime('%d/%m/%Y')
     df_excel = df_historico.drop(columns=['Data_Dt'])
 
-    st.subheader("📋 Histórico de Lançamentos Guardados")
-    
-    # Exibição dos 5 últimos no Streamlit com formatação de 2 casas decimais ({:.2f})
     df_exibicao = df_excel.tail(5).copy()
 
-    # Função para destacar o Streamlit (Verde se <= Limite, Vermelho se > Limite)
+    # Função para destacar limites
     def destacar_limites_streamlit(df):
         style_df = pd.DataFrame('', index=df.index, columns=df.columns)
         pares_parametros = [
@@ -328,7 +447,7 @@ if not df_historico.empty:
         height=210
     )
 
-    # GERAÇÃO DO EXCEL COM DUAS CASAS DECIMAIS
+    # GERAÇÃO DO EXCEL
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_excel.to_excel(writer, index=False, sheet_name='Relatório ETE')
@@ -337,7 +456,6 @@ if not df_historico.empty:
         ws = writer.sheets['Relatório ETE']
         max_linha = len(df_excel) + 1
         
-        # Formatando as células da coluna Data como texto e os números com 2 casas decimais (0.00)
         for cell in ws['A'][1:]:
             cell.number_format = '@'
             
@@ -346,21 +464,13 @@ if not df_historico.empty:
                 if isinstance(cell.value, (int, float)):
                     cell.number_format = '0.00'
 
-        # Estilos de Formatação Condicional no Excel
         green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
         green_font = Font(color="006100", bold=True)
         red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
         red_font = Font(color="9C0006", bold=True)
 
-        mapeamento_colunas_excel = [
-            ("B", "C"),
-            ("D", "E"),
-            ("F", "G"),
-            ("H", "I"),
-            ("J", "K")
-        ]
+        mapeamento_colunas_excel = [("B", "C"), ("D", "E"), ("F", "G"), ("H", "I"), ("J", "K")]
 
-        # Aplicar regras de formatação condicional dinâmicas no Excel
         for col_perm, col_lim in mapeamento_colunas_excel:
             intervalo = f"{col_perm}2:{col_perm}{max_linha}"
             regra_verde = FormulaRule(formula=[f"{col_perm}2<={col_lim}2"], stopIfTrue=True, fill=green_fill, font=green_font)
@@ -368,10 +478,8 @@ if not df_historico.empty:
             ws.conditional_formatting.add(intervalo, regra_verde)
             ws.conditional_formatting.add(intervalo, regra_vermelha)
 
-        # Se houver 5 ou mais lançamentos, desenha os gráficos
         if len(df_excel) >= 5:
             cats = Reference(ws, min_col=1, min_row=2, max_row=max_linha)
-            
             graficos_config = [
                 ("Acompanhamento DBO (Saída)", 2, 3, "W2"),
                 ("Acompanhamento DQO (Saída)", 4, 5, "W18"),
@@ -412,9 +520,9 @@ if not df_historico.empty:
     col_down1, col_down2 = st.columns(2)
     with col_down1:
         st.download_button(
-            label="📥 Descarregar Relatório em Excel (.xlsx)",
+            label="📥 Descarregar Relatório Completo em Excel (.xlsx)",
             data=excel_data,
-            file_name=f"Relatorio_Operacional_ETE_{date.today()}.xlsx",
+            file_name=f"Relatorio_Auditoria_ETE_{date.today()}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
@@ -423,9 +531,9 @@ if not df_historico.empty:
         st.download_button(
             label="📄 Descarregar Relatório em CSV",
             data=csv_data,
-            file_name=f"Relatorio_Operacional_ETE_{date.today()}.csv",
+            file_name=f"Relatorio_Auditoria_ETE_{date.today()}.csv",
             mime="text/csv",
             use_container_width=True
         )
 else:
-    st.info("Nenhum lançamento guardado na sessão atual. Preencha os dados e clique em 'Guardar Lançamento'.")
+    st.info("Nenhum lançamento gravado até o momento. Preencha os dados e clique em 'Gravar Lançamento Permanente'.")
