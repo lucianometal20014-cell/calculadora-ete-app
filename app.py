@@ -4,6 +4,7 @@ from datetime import date
 import io
 import openpyxl
 from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.chart.label import DataLabelList
 
 # Configuração da página e Título do Navegador
 st.set_page_config(
@@ -294,7 +295,7 @@ if not df_historico.empty:
     df_exibicao = df_historico.tail(5)
     st.dataframe(df_exibicao, use_container_width=True, height=210)
 
-    # GERAÇÃO DO EXCEL COM GRÁFICOS COMBINADOS (BARRA PARA RESULTADO REAL + LINHA PARA LIMITE)
+    # GERAÇÃO DO EXCEL
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_historico.to_excel(writer, index=False, sheet_name='Relatório ETE')
@@ -303,7 +304,7 @@ if not df_historico.empty:
             wb = writer.book
             ws = writer.sheets['Relatório ETE']
             
-            # Referência do Eixo X com as DATAS (Coluna A = 1)
+            # Referência do Eixo X com as DATAS exatas (Coluna A = 1)
             cats = Reference(ws, min_col=1, min_row=2, max_row=len(df_historico)+1)
             
             # Mapeamento dos parâmetros (Título, Coluna Real, Coluna Limite, Célula do Gráfico)
@@ -316,14 +317,18 @@ if not df_historico.empty:
             ]
             
             for titulo, col_real, col_limite, celula_excel in graficos_config:
-                # 1. Gráfico em BARRAS para o Valor Real Medido (Eixo Esquerdo)
+                # 1. Gráfico em BARRAS para o Valor Real Medido
                 bar = BarChart()
                 bar.title = titulo
                 bar.style = 10
                 bar.y_axis.title = "Concentração (mg/L)"
                 bar.x_axis.title = "Data"
-                bar.width = 14
-                bar.height = 8
+                bar.width = 15
+                bar.height = 9
+                
+                # Exibe o valor numérico dentro/em cima de cada coluna
+                bar.dataLabels = DataLabelList()
+                bar.dataLabels.showVal = True
                 
                 dados_bar = Reference(ws, min_col=col_real, min_row=1, max_row=len(df_historico)+1)
                 bar.add_data(dados_bar, titles_from_data=True)
@@ -335,10 +340,10 @@ if not df_historico.empty:
                 line.add_data(dados_line, titles_from_data=True)
                 line.set_categories(cats)
                 
-                # Combina Barras + Linha no mesmo gráfico do Excel
+                # Combina Barras + Linha no mesmo gráfico
                 bar += line
                 
-                # Insere o gráfico na célula correspondente
+                # Insere o gráfico na planilha
                 ws.add_chart(bar, celula_excel)
 
     excel_data = output.getvalue()
