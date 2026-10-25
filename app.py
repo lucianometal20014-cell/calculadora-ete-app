@@ -4,6 +4,11 @@ from datetime import date, datetime
 import io
 import sqlite3
 import hashlib
+import random
+import string
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import openpyxl
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.chart.label import DataLabelList
@@ -97,18 +102,83 @@ def autenticar_usuario(email, senha):
     conn.close()
     return user
 
+def verificar_email_existe(email):
+    """Verifica se o e-mail existe no banco de dados."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nome FROM usuarios WHERE email = ?", (email.lower().strip(),))
+    user = cursor.fetchone()
+    conn.close()
+    return user
+
+def atualizar_senha(email, nova_senha):
+    """Atualiza a senha do usuário no banco de dados."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE usuarios SET senha_hash = ? WHERE email = ?",
+            (hash_senha(nova_senha), email.lower().strip())
+        )
+        conn.commit()
+        conn.close()
+        return True, "✅ Senha alterada com sucesso! Faça login com a nova senha."
+    except Exception as e:
+        return False, f"❌ Erro ao atualizar senha: {str(e)}"
+
+def enviar_email_codigo(email_destino, codigo_verificacao):
+    """Envia o e-mail com o código de recuperação via SMTP do Streamlit Secrets."""
+    try:
+        smtp_server = st.secrets["smtp"]["server"]
+        smtp_port = st.secrets["smtp"]["port"]
+        smtp_user = st.secrets["smtp"]["user"]
+        smtp_password = st.secrets["smtp"]["password"]
+
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = email_destino
+        msg['Subject'] = "🔒 Código de Recuperação de Senha - Calculadora ETE"
+
+        corpo = f"""
+        Olá!
+        
+        Recebemos uma solicitação de redefinição de senha para o seu e-mail na Plataforma Calculadora ETE.
+        
+        Seu código de verificação é: {codigo_verificacao}
+        
+        Insira este código no aplicativo para cadastrar a sua nova senha.
+        Se você não solicitou a alteração, desconsidere este e-mail.
+        """
+        msg.attach(MIMEText(corpo, 'plain'))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception:
+        # Fallback de ambiente
+        return False
+
 # Gerenciamento do estado da sessão do usuário
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 
+if "reset_email" not in st.session_state:
+    st.session_state["reset_email"] = None
+
+if "reset_codigo" not in st.session_state:
+    st.session_state["reset_codigo"] = None
+
 # =========================================================
-# TELA DE LOGIN E CADASTRO
+# TELA DE LOGIN, CADASTRO E RECUPERAÇÃO DE SENHA
 # =========================================================
 if st.session_state["usuario_logado"] is None:
     st.title("🔐 Acesso à Plataforma ETE Operacional")
-    st.write("Bem-vindo! Faça login ou crie a sua conta para acessar o sistema de auditoria.")
+    st.write("Bem-vindo! Faça login, crie a sua conta ou recupere o seu acesso.")
     
-    tab_login, tab_cadastro = st.tabs(["🔑 Entrar na Conta", "📝 Criar Nova Conta"])
+    tab_login, tab_cadastro, tab_recuperar = st.tabs(["🔑 Entrar na Conta", "📝 Criar Nova Conta", "🔄 Esqueceu a Senha?"])
     
     with tab_login:
         email_login = st.text_input("E-mail de Acesso", key="login_email")
@@ -137,7 +207,56 @@ if st.session_state["usuario_logado"] is None:
                     st.warning(msg)
             else:
                 st.error("⚠️ Preencha todos os campos para se cadastrar.")
-    
+
+    with tab_recuperar:
+        st.subheader("🔑 Recuperar Acesso à Conta")
+        st.write("Informe o seu e-mail cadastrado para redefinir a sua senha.")
+        
+        email_rec = st.text_input("E-mail Cadastrado", key="rec_email")
+        
+        if st.button("Solicitar Redefinição de Senha", use_container_width=True):
+            user = verificar_email_existe(email_rec)
+            if user:
+                codigo = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                st.session_state["reset_email"] = email_rec.lower().strip()
+                st.session_state["reset_codigo"] = codigo
+                
+                enviado = enviar_email_codigo(email_rec, codigo)
+                if enviado:
+                    st.success(f"📧 Código enviado para {email_rec}! Verifique a sua caixa de entrada e spam.")
+                else:
+                    st.info("✅ E-mail confirmado no sistema! Insira a sua nova senha abaixo.")
+            else:
+                st.error("❌ Este e-mail não consta no banco de dados do sistema.")
+        
+        # Formulário de Redefinição de Senha
+        if st.session_state.get("reset_email"):
+            st.markdown("---")
+            st.write(f"**Redefinindo senha para:** `{st.session_state['reset_email']}`")
+            
+            # Se o e-mail foi enviado por SMTP, pede o código
+            if "smtp" in st.secrets:
+                cod_input = st.text_input("Digite o Código recebido por e-mail:", key="rec_cod")
+            else:
+                cod_input = st.session_state["reset_codigo"]
+                
+            nova_senha_input = st.text_input("Digite a Nova Senha:", type="password", key="rec_nova_senha")
+            
+            if st.button("Salvar Nova Senha", type="primary", use_container_width=True):
+                if cod_input == st.session_state["reset_codigo"]:
+                    if len(nova_senha_input) >= 4:
+                        ok, msg_alt = atualizar_senha(st.session_state["reset_email"], nova_senha_input)
+                        if ok:
+                            st.success(msg_alt)
+                            st.session_state["reset_email"] = None
+                            st.session_state["reset_codigo"] = None
+                        else:
+                            st.error(msg_alt)
+                    else:
+                        st.warning("⚠️ A senha deve ter pelo menos 4 caracteres.")
+                else:
+                    st.error("❌ Código de verificação incorreto.")
+
     st.stop()  # Interrompe o script para quem não está logado
 
 # =========================================================
