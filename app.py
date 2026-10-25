@@ -129,7 +129,6 @@ def atualizar_senha(email, nova_senha):
 def enviar_email_real(email_destino, codigo_verificacao):
     """Envia o e-mail real com o código usando os dados SMTP configurados."""
     try:
-        # Lê as credenciais seguras configuradas no Streamlit Secrets (.streamlit/secrets.toml)
         smtp_server = st.secrets["smtp"]["server"]
         smtp_port = int(st.secrets["smtp"]["port"])
         smtp_user = st.secrets["smtp"]["user"]
@@ -166,7 +165,7 @@ if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 
 if "etapa_recuperacao" not in st.session_state:
-    st.session_state["etapa_recuperacao"] = 1  # 1: Digitar email, 2: Digitar código e nova senha
+    st.session_state["etapa_recuperacao"] = 1
 
 if "email_recuperando" not in st.session_state:
     st.session_state["email_recuperando"] = ""
@@ -222,12 +221,10 @@ if st.session_state["usuario_logado"] is None:
                 if email_rec:
                     user = verificar_email_existe(email_rec)
                     if user:
-                        # Gera um código aleatório de 6 dígitos
                         codigo_secreto = ''.join(random.choices(string.digits, k=6))
                         st.session_state["email_recuperando"] = email_rec.lower().strip()
                         st.session_state["codigo_enviado"] = codigo_secreto
                         
-                        # Dispara o e-mail real
                         sucesso_envio, erro_msg = enviar_email_real(email_rec, codigo_secreto)
                         
                         if sucesso_envio:
@@ -235,14 +232,14 @@ if st.session_state["usuario_logado"] is None:
                             st.session_state["etapa_recuperacao"] = 2
                             st.rerun()
                         else:
-                            st.error(f"❌ Falha ao enviar o e-mail. Verifique se as configurações de SMTP estão ativas no servidor. Detalhe: {erro_msg}")
+                            st.error(f"❌ Falha ao enviar o e-mail. Detalhe: {erro_msg}")
                     else:
                         st.error("❌ Este e-mail não está registado no sistema.")
                 else:
                     st.warning("⚠️ Insira o seu e-mail.")
 
         elif st.session_state["etapa_recuperacao"] == 2:
-            st.info(പരമായ(f"Um código de segurança foi enviado para **{st.session_state['email_recuperando']}**."))
+            st.info(f"Um código de segurança foi enviado para **{st.session_state['email_recuperando']}**.")
             
             codigo_digitado = st.text_input("Digite o Código de 6 Dígitos recebido no E-mail:", max_chars=6, key="input_cod_rec")
             nova_senha1 = st.text_input("Digite a Nova Senha:", type="password", key="nova_s1")
@@ -257,7 +254,6 @@ if st.session_state["usuario_logado"] is None:
                                 ok, mensagem = atualizar_senha(st.session_state["email_recuperando"], nova_senha1)
                                 if ok:
                                     st.success(mensagem)
-                                    # Reseta o fluxo
                                     st.session_state["etapa_recuperacao"] = 1
                                     st.session_state["email_recuperando"] = ""
                                     st.session_state["codigo_enviado"] = ""
@@ -269,14 +265,14 @@ if st.session_state["usuario_logado"] is None:
                         else:
                             st.error("❌ As senhas não coincidem ou estão vazias.")
                     else:
-                        st.error("❌ Código de verificação incorreto. Verifique o código enviado para o seu e-mail.")
+                        st.error("❌ Código de verificação incorreto.")
             
             with col_b2:
                 if st.button("Voltar / Reenviar", use_container_width=True):
                     st.session_state["etapa_recuperacao"] = 1
                     st.rerun()
 
-    st.stop()  # Interrompe o script para quem não está logado
+    st.stop()
 
 # =========================================================
 # SISTEMA PRINCIPAL (APÓS LOGIN BEM-SUCEDIDO)
@@ -284,7 +280,6 @@ if st.session_state["usuario_logado"] is None:
 user_id_atual = st.session_state["usuario_logado"]["id"]
 nome_usuario = st.session_state["usuario_logado"]["nome"]
 
-# Estilo CSS Personalizado
 st.markdown("""
 <style>
     @media (max-width: 768px) {
@@ -322,7 +317,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# CABEÇALHO PROFISSIONAL COM BOTÃO DE LOGOUT
 col_head1, col_head2 = st.columns([4, 1])
 with col_head1:
     st.markdown(f"""
@@ -337,17 +331,11 @@ with col_head2:
         st.session_state["usuario_logado"] = None
         st.rerun()
 
-# ---------------------------------------------------------
-# DATA DE LANÇAMENTO
-# ---------------------------------------------------------
 st.subheader("📅 Data do Lançamento Operacional")
 data_lancamento = st.date_input("Selecione a Data das Análises:", value=date.today())
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# 1. ENTRADA DE DADOS: VAZÕES DIÁRIAS
-# ---------------------------------------------------------
 st.header("💧 1. Vazões Diárias (m³/dia)")
 
 col_v1, col_v2 = st.columns(2)
@@ -361,9 +349,6 @@ with col_v2:
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# 2. ENTRADA DE DADOS: PARÂMETROS FÍSICO-QUÍMICOS
-# ---------------------------------------------------------
 st.header("🧪 2. Análises Físico-Químicas (mg/L)")
 
 tab_dqo, tab_dbo, tab_nutrientes, tab_og, tab_ph = st.tabs([
@@ -410,9 +395,6 @@ with tab_ph:
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# CÁLCULOS OPERACIONAIS
-# ---------------------------------------------------------
 carga_dbo_sanitario = (vazao_sanitario * dbo_sanitario) / 1000
 carga_dbo_ind_tratado = (vazao_ind_tratado * dbo_ind_tratado) / 1000
 carga_dbo_total_entrada = carga_dbo_sanitario + carga_dbo_ind_tratado
@@ -454,9 +436,6 @@ def get_color_class(valor):
     elif valor >= 50: return "card-yellow", "#F57F17"
     else: return "card-red", "#C62828"
 
-# ---------------------------------------------------------
-# RESULTADOS DA TELA
-# ---------------------------------------------------------
 st.header("📊 Balanço Nutricional do Reator")
 col_res1, col_res2 = st.columns(2)
 
@@ -493,9 +472,6 @@ for col, titulo, val in [(c2, "Rem. DQO", efic_dqo), (c3, "Rem. DBO", efic_dbo),
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# GRAVAÇÃO PERMANENTE NO BANCO DE DADOS DA CONTA LOGADA
-# ---------------------------------------------------------
 st.header("💾 Salvar Lançamento & Extrair Relatórios")
 
 if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", use_container_width=True):
@@ -527,9 +503,6 @@ if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", u
     conn.close()
     st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} gravado permanentemente na sua conta!")
 
-# ---------------------------------------------------------
-# CARREGAR DADOS HISTÓRICOS APENAS DO USUÁRIO LOGADO
-# ---------------------------------------------------------
 conn = sqlite3.connect(DB_NAME)
 query = """
     SELECT 
@@ -554,14 +527,12 @@ conn.close()
 if not df_historico.empty:
     st.subheader("📋 Histórico Permanente de Lançamentos do Usuário")
     
-    # Converte 'Data' para Texto Formatado (DD/MM/YYYY)
     df_historico['Data_Dt'] = pd.to_datetime(df_historico['Data'])
     df_historico['Data'] = df_historico['Data_Dt'].dt.strftime('%d/%m/%Y')
     df_excel = df_historico.drop(columns=['Data_Dt'])
 
     df_exibicao = df_excel.tail(5).copy()
 
-    # Função para destacar limites
     def destacar_limites_streamlit(df):
         style_df = pd.DataFrame('', index=df.index, columns=df.columns)
         pares_parametros = [
@@ -585,7 +556,6 @@ if not df_historico.empty:
         height=210
     )
 
-    # GERAÇÃO DO EXCEL
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_excel.to_excel(writer, index=False, sheet_name='Relatório ETE')
