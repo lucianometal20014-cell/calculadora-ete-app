@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import io
-import sqlite3
+import psycopg2
 import hashlib
 import random
 import string
@@ -24,30 +24,32 @@ st.set_page_config(
 )
 
 # =========================================================
-# BANCO DE DADOS E AUTENTICAÇÃO (SISTEMA MULTI-USUÁRIO)
+# BANCO DE DADOS POSTGRESQL (SUPABASE) E AUTENTICAÇÃO
 # =========================================================
-DB_NAME = "ete_database.db"
+def get_db_connection():
+    """Cria uma ligação segura com o PostgreSQL no Supabase."""
+    return psycopg2.connect(st.secrets["postgres"]["connection_string"])
 
 def init_db():
-    """Inicializa as tabelas de usuários e lançamentos operacionais no banco de dados."""
-    conn = sqlite3.connect(DB_NAME)
+    """Inicializa as tabelas de utilizadores e lançamentos operacionais."""
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Tabela de Usuários (Contas individuais)
+    # Tabela de Utilizadores
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
             senha_hash TEXT NOT NULL,
             nome TEXT NOT NULL,
-            data_cadastro DATETIME DEFAULT CURRENT_TIMESTAMP
+            data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
-    # Tabela de Lançamentos Operacionais (Vinculados por usuario_id)
+    # Tabela de Lançamentos Operacionais
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lancamentos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             usuario_id INTEGER NOT NULL,
             data TEXT NOT NULL,
             dbo_permeado REAL, dbo_limite REAL,
@@ -60,11 +62,12 @@ def init_db():
             carga_dbo_entrada REAL, rem_dqo REAL, rem_dbo REAL,
             rem_og REAL, rem_n REAL, rem_p REAL,
             balanco_n REAL, balanco_p REAL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     """)
     conn.commit()
+    cursor.close()
     conn.close()
 
 init_db()
@@ -73,61 +76,63 @@ def hash_senha(senha):
     """Gera um Hash seguro para a senha."""
     return hashlib.sha256(senha.encode()).hexdigest()
 
-def cadastrar_usuario(nome, email, senha):
-    """Cadastra um novo usuário de forma única no banco de dados."""
+def cadastrar_utilizador(nome, email, senha):
+    """Cadastra um novo utilizador no Supabase."""
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO usuarios (nome, email, senha_hash) VALUES (?, ?, ?)",
+            "INSERT INTO usuarios (nome, email, senha_hash) VALUES (%s, %s, %s)",
             (nome, email.lower().strip(), hash_senha(senha))
         )
         conn.commit()
+        cursor.close()
         conn.close()
-        return True, "✅ Conta criada com sucesso! Faça login para acessar o sistema."
-    except sqlite3.IntegrityError:
-        return False, "⚠️ Este e-mail já está cadastrado no sistema."
+        return True, "✅ Conta criada com sucesso! Faça login para aceder ao sistema."
     except Exception as e:
-        return False, f"❌ Erro ao cadastrar: {str(e)}"
+        return False, f"⚠️ Este e-mail já está registado no sistema."
 
-def autenticar_usuario(email, senha):
-    """Valida o e-mail e a senha do usuário."""
-    conn = sqlite3.connect(DB_NAME)
+def autenticar_utilizador(email, senha):
+    """Valida o e-mail e a senha do utilizador."""
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, nome, email FROM usuarios WHERE email = ? AND senha_hash = ?",
+        "SELECT id, nome, email FROM usuarios WHERE email = %s AND senha_hash = %s",
         (email.lower().strip(), hash_senha(senha))
     )
     user = cursor.fetchone()
+    cursor.close()
     conn.close()
     return user
 
 def verificar_email_existe(email):
-    """Verifica se o e-mail existe no banco de dados."""
-    conn = sqlite3.connect(DB_NAME)
+    """Verifica se o e-mail existe no Supabase."""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, nome FROM usuarios WHERE email = ?", (email.lower().strip(),))
+    cursor.execute("SELECT id, nome FROM usuarios WHERE email = %s", (email.lower().strip(),))
     user = cursor.fetchone()
+    cursor.close()
     conn.close()
     return user
 
 def atualizar_senha(email, nova_senha):
-    """Atualiza a senha do usuário no banco de dados."""
+    """Atualiza a senha do utilizador no Supabase."""
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE usuarios SET senha_hash = ? WHERE email = ?",
+            "UPDATE usuarios SET senha_hash = %s WHERE email = %s",
             (hash_senha(nova_senha), email.lower().strip())
         )
         conn.commit()
+        cursor.close()
         conn.close()
         return True, "✅ Senha alterada com sucesso! Faça login com a nova senha."
     except Exception as e:
         return False, f"❌ Erro ao atualizar senha: {str(e)}"
 
 def enviar_email_real(email_destino, codigo_verificacao):
-    """Envia o e-mail real com o código usando os dados SMTP configurados."""
+    """Envia o e-mail real com o código usando os dados SMTP."""
     try:
         smtp_server = st.secrets["smtp"]["server"]
         smtp_port = int(st.secrets["smtp"]["port"])
@@ -160,7 +165,7 @@ def enviar_email_real(email_destino, codigo_verificacao):
     except Exception as e:
         return False, f"Erro SMTP: {str(e)}"
 
-# Gerenciamento do estado da sessão do usuário
+# Gerenciamento do estado da sessão
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 
@@ -187,7 +192,7 @@ if st.session_state["usuario_logado"] is None:
         senha_login = st.text_input("Senha", type="password", key="login_senha")
         
         if st.button("Entrar no Sistema", type="primary", use_container_width=True):
-            user = autenticar_usuario(email_login, senha_login)
+            user = autenticar_utilizador(email_login, senha_login)
             if user:
                 st.session_state["usuario_logado"] = {"id": user[0], "nome": user[1], "email": user[2]}
                 st.success(f"Bem-vindo, {user[1]}!")
@@ -202,7 +207,7 @@ if st.session_state["usuario_logado"] is None:
         
         if st.button("Cadastrar e Liberar Acesso", use_container_width=True):
             if nome_reg and email_reg and senha_reg:
-                sucesso, msg = cadastrar_usuario(nome_reg, email_reg, senha_reg)
+                sucesso, msg = cadastrar_utilizador(nome_reg, email_reg, senha_reg)
                 if sucesso:
                     st.success(msg)
                 else:
@@ -278,7 +283,7 @@ if st.session_state["usuario_logado"] is None:
 # SISTEMA PRINCIPAL (APÓS LOGIN BEM-SUCEDIDO)
 # =========================================================
 user_id_atual = st.session_state["usuario_logado"]["id"]
-nome_usuario = st.session_state["usuario_logado"]["nome"]
+nome_utilizador = st.session_state["usuario_logado"]["nome"]
 
 st.markdown("""
 <style>
@@ -322,7 +327,7 @@ with col_head1:
     st.markdown(f"""
     <div class="header-banner">
         <h1 class="main-title">🧪 Calculadora & Gestão Operacional ETE</h1>
-        <p style="margin:0; font-size:13px;">PAINEL EXCLUSIVO: {nome_usuario.upper()}</p>
+        <p style="margin:0; font-size:13px;">PAINEL EXCLUSIVO: {nome_utilizador.upper()}</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -427,7 +432,7 @@ m_n_in = (n_sanitario * vazao_sanitario) + (n_ind_tratado * vazao_ind_tratado)
 m_n_out = n_permeado * vazao_permeado
 efic_n = calcular_eficiencia(m_n_in, m_n_out)
 
-m_p_in = (p_sanitario * vazao_sanitario) + (p_ind_tratado * vazao_ind_tratado)
+m_p_in = (p_sanitario * vazao_sanitario) + (p_ind_tratado * p_ind_tratado)
 m_p_out = p_permeado * vazao_permeado
 efic_p = calcular_eficiencia(m_p_in, m_p_out)
 
@@ -475,7 +480,7 @@ st.markdown("---")
 st.header("💾 Salvar Lançamento & Extrair Relatórios")
 
 if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", use_container_width=True):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO lancamentos (
@@ -484,7 +489,7 @@ if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", u
             vazao_sanitario, vazao_ind_bruto, vazao_ind_tratado, vazao_permeado,
             carga_dbo_entrada, rem_dqo, rem_dbo, rem_og, rem_n, rem_p,
             balanco_n, balanco_p
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         user_id_atual, data_lancamento.strftime("%Y-%m-%d"),
         round(float(dbo_permeado), 2), 60.00,
@@ -500,10 +505,11 @@ if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", u
         round(float(desvio_n_kg), 2), round(float(desvio_p_kg), 2)
     ))
     conn.commit()
+    cursor.close()
     conn.close()
-    st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} gravado permanentemente na sua conta!")
+    st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} gravado permanentemente na nuvem!")
 
-conn = sqlite3.connect(DB_NAME)
+conn = get_db_connection()
 query = """
     SELECT 
         data AS "Data",
@@ -518,14 +524,14 @@ query = """
         rem_dbo AS "Remoção DBO (%)", rem_og AS "Remoção O&G (%)", rem_n AS "Remoção N (%)",
         rem_p AS "Remoção P (%)", balanco_n AS "Balanço N (kg/dia)", balanco_p AS "Balanço P (kg/dia)"
     FROM lancamentos 
-    WHERE usuario_id = ?
+    WHERE usuario_id = %s
     ORDER BY date(data) ASC
 """
 df_historico = pd.read_sql_query(query, conn, params=(user_id_atual,))
 conn.close()
 
 if not df_historico.empty:
-    st.subheader("📋 Histórico Permanente de Lançamentos do Usuário")
+    st.subheader("📋 Histórico Permanente de Lançamentos do Utilizador")
     
     df_historico['Data_Dt'] = pd.to_datetime(df_historico['Data'])
     df_historico['Data'] = df_historico['Data_Dt'].dt.strftime('%d/%m/%Y')
