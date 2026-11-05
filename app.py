@@ -27,8 +27,14 @@ st.set_page_config(
 # BANCO DE DADOS POSTGRESQL (SUPABASE) E AUTENTICAÇÃO
 # =========================================================
 def get_db_connection():
-    """Cria uma ligação segura com o PostgreSQL no Supabase."""
-    return psycopg2.connect(st.secrets["postgres"]["connection_string"])
+    """Cria uma ligação segura com o PostgreSQL no Supabase utilizando parâmetros separados."""
+    return psycopg2.connect(
+        host=st.secrets["postgres"]["host"],
+        database=st.secrets["postgres"]["database"],
+        user=st.secrets["postgres"]["user"],
+        password=st.secrets["postgres"]["password"],
+        port=st.secrets["postgres"]["port"]
+    )
 
 def init_db():
     """Inicializa as tabelas de utilizadores e lançamentos operacionais."""
