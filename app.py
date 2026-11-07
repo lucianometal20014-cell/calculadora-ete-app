@@ -434,7 +434,7 @@ m_og_in = (og_sanitario * vazao_sanitario) + (og_ind_bruto * vazao_ind_bruto)
 m_og_out = og_permeado * vazao_permeado
 efic_og = calcular_eficiencia(m_og_in, m_og_out)
 
-m_n_in = (n_sanitario * vazao_sanitario) + (n_ind_tratado * vazao_ind_tratado)
+m_n_in = (n_sanitario * vazao_sanitario) + (n_ind_tratado * n_ind_tratado)
 m_n_out = n_permeado * vazao_permeado
 efic_n = calcular_eficiencia(m_n_in, m_n_out)
 
