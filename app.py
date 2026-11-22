@@ -522,7 +522,7 @@ if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", u
 conn = get_db_connection()
 cursor = conn.cursor()
 query = """
-    SELECT 
+    SELECT
         data AS "Data",
         dbo_permeado AS "DBO Permeado (mg/L)", dbo_limite AS "DBO Limite (mg/L)",
         dqo_permeado AS "DQO Permeado (mg/L)", dqo_limite AS "DQO Limite (mg/L)",
@@ -531,20 +531,28 @@ query = """
         p_permeado AS "P Permeado (mg/L)", p_limite AS "P Limite (mg/L)",
         vazao_sanitario AS "Vazão Sanitário (m³/dia)", vazao_ind_bruto AS "Vazão Ind. Bruto (m³/dia)",
         vazao_ind_tratado AS "Vazão Ind. Tratado (m³/dia)", vazao_permeado AS "Vazão Permeado (m³/dia)",
-        carga_dbo_entrada AS "Carga DBO Entrada (kg/dia)", rem_dqo AS "Remoção DQO (%)",
-        rem_dbo AS "Remoção DBO (%)", rem_og AS "Remoção O&G (%)", rem_n AS "Remoção N (%)",
-        rem_p AS "Remoção P (%)", balanco_n AS "Balanço N (kg/dia)", balanco_p AS "Balanço P (kg/dia)"
-    FROM lancamentos 
+        carga_dbo_entrada AS "Carga DBO Entrada (kg/dia)", rem_dqo AS "Remoção DQO",
+        rem_dbo AS "Remoção DBO", rem_og AS "Remoção O&G", rem_n AS "Remoção N",
+        rem_p AS "Remoção P", balanco_n AS "Balanço N (kg/dia)", balanco_p AS "Balanço P (kg/dia)"
+    FROM lancamentos
     WHERE usuario_id = %s
     ORDER BY data ASC
 """
-cursor.execute(query, (user_id_atual,))
+cursor.execute(query, [int(user_id_atual)])
 rows = cursor.fetchall()
 col_names = [desc[0] for desc in cursor.description]
 cursor.close()
 conn.close()
 
 df_historico = pd.DataFrame(rows, columns=col_names)
+if not df_historico.empty:
+    df_historico = df_historico.rename(columns={
+        "Remoção DQO": "Remoção DQO (%)",
+        "Remoção DBO": "Remoção DBO (%)",
+        "Remoção O&G": "Remoção O&G (%)",
+        "Remoção N": "Remoção N (%)",
+        "Remoção P": "Remoção P (%)"
+    })
 
 if not df_historico.empty:
     st.subheader("📋 Histórico Permanente de Lançamentos do Utilizador")
