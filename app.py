@@ -520,6 +520,7 @@ if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", u
     st.success(f"✅ Lançamento do dia {data_lancamento.strftime('%d/%m/%Y')} gravado permanentemente na nuvem!")
 
 conn = get_db_connection()
+cursor = conn.cursor()
 query = """
     SELECT 
         data AS "Data",
@@ -535,10 +536,15 @@ query = """
         rem_p AS "Remoção P (%)", balanco_n AS "Balanço N (kg/dia)", balanco_p AS "Balanço P (kg/dia)"
     FROM lancamentos 
     WHERE usuario_id = %s
-    ORDER BY date(data) ASC
+    ORDER BY data ASC
 """
-df_historico = pd.read_sql_query(query, conn, params=(user_id_atual,))
+cursor.execute(query, (user_id_atual,))
+rows = cursor.fetchall()
+col_names = [desc[0] for desc in cursor.description]
+cursor.close()
 conn.close()
+
+df_historico = pd.DataFrame(rows, columns=col_names)
 
 if not df_historico.empty:
     st.subheader("📋 Histórico Permanente de Lançamentos do Utilizador")
