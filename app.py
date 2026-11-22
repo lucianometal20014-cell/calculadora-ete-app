@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import io
-import sqlite3
+import psycopg2
 import hashlib
 import random
 import string
@@ -24,33 +24,39 @@ st.set_page_config(
 )
 
 # =========================================================
-# BANCO DE DADOS SQLITE LOCAL (ZERO ERROS DE REDE)
+# BANCO DE DADOS POSTGRESQL NA NUVEM (NEON) E AUTENTICAÇÃO
 # =========================================================
 def get_db_connection():
-    """Cria uma ligação local com o SQLite."""
-    conn = sqlite3.connect("calculadora_ete.db", check_same_thread=False)
-    return conn
+    """Cria uma ligação segura com o PostgreSQL na nuvem."""
+    return psycopg2.connect(
+        host=st.secrets["postgres"]["host"],
+        database=st.secrets["postgres"]["database"],
+        user=st.secrets["postgres"]["user"],
+        password=st.secrets["postgres"]["password"],
+        port=int(st.secrets["postgres"]["port"]),
+        sslmode="require"
+    )
 
 def init_db():
     """Inicializa as tabelas de utilizadores e lançamentos operacionais."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # Tabela de Utilizadores
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
             senha_hash TEXT NOT NULL,
             nome TEXT NOT NULL,
             data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
     # Tabela de Lançamentos Operacionais
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lancamentos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             usuario_id INTEGER NOT NULL,
             data TEXT NOT NULL,
             dbo_permeado REAL, dbo_limite REAL,
@@ -78,27 +84,27 @@ def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 def cadastrar_utilizador(nome, email, senha):
-    """Cadastra um novo utilizador no SQLite."""
+    """Cadastra um novo utilizador na base de dados."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO usuarios (nome, email, senha_hash) VALUES (?, ?, ?)",
+            "INSERT INTO usuarios (nome, email, senha_hash) VALUES (%s, %s, %s)",
             (nome, email.lower().strip(), hash_senha(senha))
         )
         conn.commit()
         cursor.close()
         conn.close()
         return True, "✅ Conta criada com sucesso! Faça login para aceder ao sistema."
-    except Exception as e:
-        return False, f"⚠️ Este e-mail já está registado no sistema."
+    except Exception:
+        return False, "⚠️ Este e-mail já está registado no sistema."
 
 def autenticar_utilizador(email, senha):
     """Valida o e-mail e a senha do utilizador."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, nome, email FROM usuarios WHERE email = ? AND senha_hash = ?",
+        "SELECT id, nome, email FROM usuarios WHERE email = %s AND senha_hash = %s",
         (email.lower().strip(), hash_senha(senha))
     )
     user = cursor.fetchone()
@@ -107,22 +113,22 @@ def autenticar_utilizador(email, senha):
     return user
 
 def verificar_email_existe(email):
-    """Verifica se o e-mail existe no SQLite."""
+    """Verifica se o e-mail existe na base de dados."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, nome FROM usuarios WHERE email = ?", (email.lower().strip(),))
+    cursor.execute("SELECT id, nome FROM usuarios WHERE email = %s", (email.lower().strip(),))
     user = cursor.fetchone()
     cursor.close()
     conn.close()
     return user
 
 def atualizar_senha(email, nova_senha):
-    """Atualiza a senha do utilizador no SQLite."""
+    """Atualiza a senha do utilizador na base de dados."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE usuarios SET senha_hash = ? WHERE email = ?",
+            "UPDATE usuarios SET senha_hash = %s WHERE email = %s",
             (hash_senha(nova_senha), email.lower().strip())
         )
         conn.commit()
@@ -147,11 +153,11 @@ def enviar_email_real(email_destino, codigo_verificacao):
 
         corpo = f"""
         Olá,
-        
+
         Recebemos uma solicitação de redefinição de senha para a sua conta na Plataforma Calculadora ETE.
-        
+
         O seu código de verificação seguro é: {codigo_verificacao}
-        
+
         Insira este código na tela de recuperação do aplicativo para cadastrar a sua nova senha.
         Caso não tenha solicitado esta alteração, ignore este e-mail.
         """
@@ -185,13 +191,13 @@ if "codigo_enviado" not in st.session_state:
 if st.session_state["usuario_logado"] is None:
     st.title("🔐 Acesso à Plataforma ETE Operacional")
     st.write("Bem-vindo! Faça login, crie a sua conta ou recupere o seu acesso de forma segura.")
-    
+
     tab_login, tab_cadastro, tab_recuperar = st.tabs(["🔑 Entrar na Conta", "📝 Criar Nova Conta", "🔄 Esqueceu a Senha?"])
-    
+
     with tab_login:
         email_login = st.text_input("E-mail de Acesso", key="login_email")
         senha_login = st.text_input("Senha", type="password", key="login_senha")
-        
+
         if st.button("Entrar no Sistema", type="primary", use_container_width=True):
             user = autenticar_utilizador(email_login, senha_login)
             if user:
@@ -200,12 +206,12 @@ if st.session_state["usuario_logado"] is None:
                 st.rerun()
             else:
                 st.error("❌ E-mail ou senha incorretos. Tente novamente.")
-                
+
     with tab_cadastro:
         nome_reg = st.text_input("Seu Nome Completo", key="reg_nome")
-        email_reg = st.text_input("Seu E-mail (o mesmo da Hotmart)", key="reg_email")
+        email_reg = st.text_input("Seu E-mail", key="reg_email")
         senha_reg = st.text_input("Crie uma Senha Forte", type="password", key="reg_senha")
-        
+
         if st.button("Cadastrar e Liberar Acesso", use_container_width=True):
             if nome_reg and email_reg and senha_reg:
                 sucesso, msg = cadastrar_utilizador(nome_reg, email_reg, senha_reg)
@@ -218,11 +224,11 @@ if st.session_state["usuario_logado"] is None:
 
     with tab_recuperar:
         st.subheader("🔄 Recuperação Segura de Senha")
-        
+
         if st.session_state["etapa_recuperacao"] == 1:
             st.write("Informe o seu e-mail cadastrado. Enviaremos um código de segurança exclusivo para a sua caixa de entrada.")
             email_rec = st.text_input("E-mail Cadastrado", key="rec_email_input")
-            
+
             if st.button("📤 Enviar Código de Verificação por E-mail", type="primary", use_container_width=True):
                 if email_rec:
                     user = verificar_email_existe(email_rec)
@@ -230,9 +236,9 @@ if st.session_state["usuario_logado"] is None:
                         codigo_secreto = ''.join(random.choices(string.digits, k=6))
                         st.session_state["email_recuperando"] = email_rec.lower().strip()
                         st.session_state["codigo_enviado"] = codigo_secreto
-                        
+
                         sucesso_envio, erro_msg = enviar_email_real(email_rec, codigo_secreto)
-                        
+
                         if sucesso_envio:
                             st.success(f"✅ Código de segurança enviado para **{email_rec}**. Verifique sua caixa de entrada e spam!")
                             st.session_state["etapa_recuperacao"] = 2
@@ -246,11 +252,11 @@ if st.session_state["usuario_logado"] is None:
 
         elif st.session_state["etapa_recuperacao"] == 2:
             st.info(f"Um código de segurança foi enviado para **{st.session_state['email_recuperando']}**.")
-            
+
             codigo_digitado = st.text_input("Digite o Código de 6 Dígitos recebido no E-mail:", max_chars=6, key="input_cod_rec")
             nova_senha1 = st.text_input("Digite a Nova Senha:", type="password", key="nova_s1")
             nova_senha2 = st.text_input("Confirme a Nova Senha:", type="password", key="nova_s2")
-            
+
             col_b1, col_b2 = st.columns(2)
             with col_b1:
                 if st.button("🔒 Redefinir Senha", type="primary", use_container_width=True):
@@ -272,7 +278,7 @@ if st.session_state["usuario_logado"] is None:
                             st.error("❌ As senhas não coincidem ou estão vazias.")
                     else:
                         st.error("❌ Código de verificação incorreto.")
-            
+
             with col_b2:
                 if st.button("Voltar / Reenviar", use_container_width=True):
                     st.session_state["etapa_recuperacao"] = 1
@@ -293,7 +299,7 @@ st.markdown("""
         .kpi-value { font-size: 18px !important; }
         .kpi-title { font-size: 11px !important; }
     }
-    
+
     .header-banner {
         background: linear-gradient(135deg, #0f4c81 0%, #1e88e5 100%);
         padding: 20px;
@@ -302,7 +308,7 @@ st.markdown("""
         margin-bottom: 20px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    
+
     .kpi-card {
         background-color: #ffffff;
         border-radius: 10px;
@@ -315,7 +321,7 @@ st.markdown("""
     .kpi-title { font-size: 12px; color: #555; font-weight: 600; }
     .kpi-value { font-size: 22px; font-weight: bold; }
     .kpi-sub { font-size: 10px; color: #777; }
-    
+
     .card-blue { border-top-color: #1E88E5 !important; }
     .card-green { border-top-color: #2E7D32 !important; }
     .card-yellow { border-top-color: #F57F17 !important; }
@@ -380,7 +386,7 @@ with tab_nutrientes:
     n_sanitario = col1.number_input("N Sanitário", min_value=0.0, value=93.1, key="n_s")
     n_ind_tratado = col1.number_input("N Ind. Tratado", min_value=0.0, value=13.07, key="n_t")
     n_permeado = col1.number_input("N Permeado (Saída)", min_value=0.0, value=10.5, key="n_p")
-    
+
     p_sanitario = col2.number_input("P Sanitário", min_value=0.0, value=43.6, key="p_s")
     p_ind_tratado = col2.number_input("P Ind. Tratado", min_value=0.0, value=1.18, key="p_t")
     p_permeado = col2.number_input("P Permeado (Saída)", min_value=0.0, value=0.20, key="p_p")
@@ -438,9 +444,12 @@ m_p_out = p_permeado * vazao_permeado
 efic_p = calcular_eficiencia(m_p_in, m_p_out)
 
 def get_color_class(valor):
-    if valor >= 80: return "card-green", "#2E7D32"
-    elif valor >= 50: return "card-yellow", "#F57F17"
-    else: return "card-red", "#C62828"
+    if valor >= 80:
+        return "card-green", "#2E7D32"
+    elif valor >= 50:
+        return "card-yellow", "#F57F17"
+    else:
+        return "card-red", "#C62828"
 
 st.header("📊 Balanço Nutricional do Reator")
 col_res1, col_res2 = st.columns(2)
@@ -466,7 +475,7 @@ with col_res2:
 st.markdown("---")
 
 st.header("📈 Eficiência Global de Remoção")
-c1, c2, c3, c4, c5, c6 = st.columns([1,1,1,1,1,1])
+c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1, 1, 1])
 
 with c1:
     st.markdown(f'<div class="kpi-card card-blue"><div class="kpi-title">Carga DBO Entrada</div><div class="kpi-value" style="color:#1E88E5;">{carga_dbo_total_entrada:.1f}</div><div class="kpi-sub">kg/dia</div></div>', unsafe_allow_html=True)
@@ -490,7 +499,7 @@ if st.button("💾 Gravar Lançamento Permanente no Servidor", type="primary", u
             vazao_sanitario, vazao_ind_bruto, vazao_ind_tratado, vazao_permeado,
             carga_dbo_entrada, rem_dqo, rem_dbo, rem_og, rem_n, rem_p,
             balanco_n, balanco_p
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         user_id_atual, data_lancamento.strftime("%Y-%m-%d"),
         round(float(dbo_permeado), 2), 60.00,
@@ -525,15 +534,15 @@ query = """
         rem_dbo AS "Remoção DBO (%)", rem_og AS "Remoção O&G (%)", rem_n AS "Remoção N (%)",
         rem_p AS "Remoção P (%)", balanco_n AS "Balanço N (kg/dia)", balanco_p AS "Balanço P (kg/dia)"
     FROM lancamentos 
-    WHERE usuario_id = ?
-    ORDER BY date(Data) ASC
+    WHERE usuario_id = %s
+    ORDER BY date(data) ASC
 """
 df_historico = pd.read_sql_query(query, conn, params=(user_id_atual,))
 conn.close()
 
 if not df_historico.empty:
     st.subheader("📋 Histórico Permanente de Lançamentos do Utilizador")
-    
+
     df_historico['Data_Dt'] = pd.to_datetime(df_historico['Data'])
     df_historico['Data'] = df_historico['Data_Dt'].dt.strftime('%d/%m/%Y')
     df_excel = df_historico.drop(columns=['Data_Dt'])
@@ -566,14 +575,14 @@ if not df_historico.empty:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_excel.to_excel(writer, index=False, sheet_name='Relatório ETE')
-        
+
         wb = writer.book
         ws = writer.sheets['Relatório ETE']
         max_linha = len(df_excel) + 1
-        
+
         for cell in ws['A'][1:]:
             cell.number_format = '@'
-            
+
         for row in ws.iter_rows(min_row=2, max_row=max_linha, min_col=2, max_col=ws.max_column):
             for cell in row:
                 if isinstance(cell.value, (int, float)):
@@ -602,7 +611,7 @@ if not df_historico.empty:
                 ("Acompanhamento Nitrogênio - N (Saída)", 8, 9, "AF2"),
                 ("Acompanhamento Fósforo - P (Saída)", 10, 11, "AF18")
             ]
-            
+
             for titulo, col_real, col_limite, celula_excel in graficos_config:
                 bar = BarChart()
                 bar.title = titulo
@@ -611,22 +620,22 @@ if not df_historico.empty:
                 bar.x_axis.title = "Data"
                 bar.width = 15
                 bar.height = 9
-                
+
                 bar.dataLabels = DataLabelList()
                 bar.dataLabels.showVal = True
                 bar.dataLabels.showSerName = False
                 bar.dataLabels.showCatName = False
                 bar.dataLabels.position = "ctr"
-                
+
                 dados_bar = Reference(ws, min_col=col_real, min_row=1, max_row=max_linha)
                 bar.add_data(dados_bar, titles_from_data=True)
                 bar.set_categories(cats)
-                
+
                 line = LineChart()
                 dados_line = Reference(ws, min_col=col_limite, min_row=1, max_row=max_linha)
                 line.add_data(dados_line, titles_from_data=True)
                 line.set_categories(cats)
-                
+
                 bar += line
                 ws.add_chart(bar, celula_excel)
 
