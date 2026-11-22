@@ -163,8 +163,14 @@ def enviar_email_real(email_destino, codigo_verificacao):
         """
         msg.attach(MIMEText(corpo, 'plain'))
 
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15)
+        else:
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=15)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+
         server.login(smtp_user, smtp_password)
         server.sendmail(smtp_user, email_destino, msg.as_string())
         server.quit()
